@@ -94,6 +94,11 @@ def _configure_launcher(monkeypatch, tmp_path, *, status_file=None, fake_run=Non
     return runner, status_file, log_file, commands
 
 
+def _snapshot_optional_file(path):
+    """Capture ignored local state so runner tests verify no mutation, not absence."""
+    return (path.exists(), path.read_bytes() if path.is_file() else None)
+
+
 def test_dashboard_runner_executes_only_the_combined_broad_pass(monkeypatch, tmp_path):
     status_file = tmp_path / "runner-temp" / "discovery-status.json"
     status_file.parent.mkdir()
@@ -138,9 +143,11 @@ def test_fresh_github_runner_initializes_status_before_starting_discovery(monkey
     runner, status_file, log_file, commands = _configure_launcher(
         monkeypatch, tmp_path, fake_run=fake_run
     )
+    registry_path = runner.ROOT / "company_registry" / "registry.json"
+    diagnostics_path = runner.ROOT / ".diagnostics" / "dashboard-discovery.json"
+    registry_before = _snapshot_optional_file(registry_path)
+    diagnostics_before = _snapshot_optional_file(diagnostics_path)
     assert not status_file.exists()
-    assert not (runner.ROOT / "company_registry" / "registry.json").exists()
-    assert not (runner.ROOT / ".diagnostics" / "dashboard-discovery.json").exists()
     assert runner.main() == 0
 
     assert len(commands) == 1
@@ -156,6 +163,8 @@ def test_fresh_github_runner_initializes_status_before_starting_discovery(monkey
     assert status_file.is_absolute()
     assert log_file.is_absolute()
     assert json.loads(status_file.read_text(encoding="utf-8"))["status"] == "completed"
+    assert _snapshot_optional_file(registry_path) == registry_before
+    assert _snapshot_optional_file(diagnostics_path) == diagnostics_before
 
 
 def test_cli_entrypoint_starts_stub_bun_from_clean_runner_workspace(tmp_path):
@@ -178,6 +187,10 @@ def test_cli_entrypoint_starts_stub_bun_from_clean_runner_workspace(tmp_path):
     runner_temp = tmp_path / "runner-temp"
     status_file = runner_temp / "discovery-status.json"
     log_file = runner_temp / "discovery.log"
+    registry_path = runner.ROOT / "company_registry" / "registry.json"
+    diagnostics_path = runner.ROOT / ".diagnostics" / "dashboard-discovery.json"
+    registry_before = _snapshot_optional_file(registry_path)
+    diagnostics_before = _snapshot_optional_file(diagnostics_path)
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment.get('PATH', '')}"
     for name in (
@@ -214,8 +227,8 @@ def test_cli_entrypoint_starts_stub_bun_from_clean_runner_workspace(tmp_path):
     assert status["result"]["runs"][0]["stats"]["new_jobs"] == 2
     assert log_file.exists()
     assert not status_file.with_suffix(status_file.suffix + ".tmp").exists()
-    assert not (runner.ROOT / "company_registry" / "registry.json").exists()
-    assert not (runner.ROOT / ".diagnostics" / "dashboard-discovery.json").exists()
+    assert _snapshot_optional_file(registry_path) == registry_before
+    assert _snapshot_optional_file(diagnostics_path) == diagnostics_before
 
 
 def test_malformed_status_fails_controlled_without_starting_discovery(monkeypatch, tmp_path):

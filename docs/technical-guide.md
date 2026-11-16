@@ -74,3 +74,7 @@ bun test tests
 Tests cover candidate evidence, discovery, application workflows and artifact handling. Some integration tests require a disposable local database or a host that supports the document sandbox. See [security checks](security-implementation-plan.md) for those requirements and the CI coverage boundary.
 
 Source availability depends on provider access and credentials. AI output needs review. Keep real CVs, application records, credentials and diagnostics outside version control.
+
+## Self-hosted backend
+
+See [local Supabase operations](local-supabase.md) for the pinned deployment, migration tooling, scheduler, backup and recovery boundaries. The dashboard also includes discovery history, paginated review actions and resumable summary rebuilding.

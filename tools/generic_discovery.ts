@@ -2559,11 +2559,26 @@ export class SupabaseDiscoveryStore implements DiscoveryStore {
   private async upsertLegacyJob(payload: Record<string, unknown>, existing?: Record<string, unknown>): Promise<{ id: number | null; created: boolean }> {
     if (existing?.id !== undefined && existing.id !== null) {
       const params = new URLSearchParams({ id: `eq.${existing.id}` })
+      const { description, description_kind, ...jobFields } = payload
       await this.request(`/rest/v1/jobs?${params}`, {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: jsonBody(payload),
+        body: jsonBody(jobFields),
       })
+      // `existing` was loaded before discovery. A user can save a full JD while
+      // the run is in progress, so never let a stale discovery snapshot replace
+      // a full description. The filter makes this check atomic with the write.
+      if (typeof description === "string" && typeof description_kind === "string") {
+        const descriptionParams = new URLSearchParams({
+          id: `eq.${existing.id}`,
+          description_kind: "neq.full",
+        })
+        await this.request(`/rest/v1/jobs?${descriptionParams}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: jsonBody({ description, description_kind }),
+        })
+      }
       return { id: Number(existing.id), created: false }
     }
     const rows = await this.request("/rest/v1/jobs", {

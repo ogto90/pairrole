@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   discover:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.PAIRROLE_BACKEND != 'local'
     environment: "Job search"
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -113,7 +113,6 @@ jobs:
             --expected-project-ref "${{ vars.SUPABASE_PROJECT_REF }}" \
             --user-id "$AI_JOB_SEARCH_USER_ID" \
             --discovery-status-file "$RUNNER_TEMP/discovery-status.json" \
-            --max-batches 20 \
             --retries 3 \
             --allow-production \
             --require-complete

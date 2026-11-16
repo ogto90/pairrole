@@ -3,6 +3,14 @@ import json
 import pytest
 
 import matching.tailored_cv as tailoring
+from tests.latex_sandbox_support import bubblewrap_namespace_unavailable_reason
+
+
+_BWRAP_NAMESPACE_REASON = bubblewrap_namespace_unavailable_reason()
+requires_bubblewrap_namespaces = pytest.mark.skipif(
+    _BWRAP_NAMESPACE_REASON is not None,
+    reason=_BWRAP_NAMESPACE_REASON or "bubblewrap namespaces unavailable",
+)
 
 
 BROKEN_HEADER = r"""\documentclass{article}
@@ -15,6 +23,7 @@ Delivered security improvements worth $100.
 """
 
 
+@requires_bubblewrap_namespaces
 def test_cross_header_math_failure_is_reproduced_then_sanitized(tmp_path, monkeypatch):
     monkeypatch.setattr(tailoring, "_COMPILATION_DIAGNOSTICS", tmp_path / "failures")
     with pytest.raises(tailoring.TailoredCVError, match=r"invalid in math mode"):

@@ -18,6 +18,8 @@ PairRole brings job discovery, CV-based role comparisons and application trackin
 
 The user chooses which roles to evaluate and pursue; PairRole does not submit applications.
 
+Local deployments also support a loopback-only Supabase backend, scheduled workers and verified backups. See the [local deployment guide](docs/local-supabase.md).
+
 ## My contribution
 
 I defined the product workflows and security requirements and directed development using OpenAI Codex for implementation. The project combines my interests in application security, Python/API automation and practical AI tooling.

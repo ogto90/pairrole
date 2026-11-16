@@ -27,6 +27,34 @@ from matching.candidate_profile_persistence import (
 from ui.dashboard_summary import build_dashboard_summaries
 
 
+def validate_target(url: str, *, project_ref: str | None = None,
+                    expected_url: str | None = None, allow_production: bool = False) -> str:
+    """Validate an exact deployment origin without weakening legacy target guards."""
+    url = url.rstrip("/")
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("Invalid API port") from None
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path or parsed.params or parsed.query or parsed.fragment):
+        raise ValueError("Supabase URL must be an HTTP(S) origin without credentials, path, query or fragment")
+    if bool(project_ref) == bool(expected_url):
+        raise ValueError("Specify exactly one expected project reference or expected URL")
+    if expected_url is not None:
+        if url != expected_url.rstrip("/"):
+            raise ValueError("Supabase URL does not match the expected deployment URL")
+    elif project_ref == "local":
+        if parsed.hostname not in {"127.0.0.1", "localhost"} or port != 54321:
+            raise ValueError("The local target must be http(s)://localhost:54321")
+    elif parsed.hostname != f"{project_ref}.supabase.co":
+        raise ValueError("Supabase URL host does not match the expected project reference")
+    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"} and not allow_production:
+        raise ValueError("Refusing to write dashboard summaries to production without --allow-production")
+    return url
+
+
 def discovery_job_ids(status_path: Path) -> list[int]:
     status = json.loads(status_path.read_text(encoding="utf-8"))
     runs = (status.get("result") or {}).get("runs") or []
@@ -41,7 +69,9 @@ def discovery_job_ids(status_path: Path) -> list[int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--supabase-url", required=True, help="Exact disposable or approved Supabase API URL to target.")
-    parser.add_argument("--expected-project-ref", required=True, help="Expected Supabase project ref, or 'local' for localhost:54321.")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--expected-project-ref", help="Expected Supabase project ref, or 'local' for localhost:54321.")
+    target.add_argument("--expected-url", help="Exact independently configured API origin for a self-hosted deployment.")
     parser.add_argument("--user-id", default=os.getenv("AI_JOB_SEARCH_USER_ID"))
     parser.add_argument("--max-batches", type=int, help="Stop after this many 50-job batches; rerun to resume.")
     parser.add_argument(
@@ -69,16 +99,11 @@ def main() -> int:
     secret = os.getenv("DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY")
     if not args.user_id or not secret:
         parser.error("Set DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY and AI_JOB_SEARCH_USER_ID or pass --user-id")
-    parsed_url = urlparse(url)
-    if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
-        parser.error("--supabase-url must be an explicit HTTP(S) API endpoint")
-    if args.expected_project_ref == "local":
-        if parsed_url.hostname not in {"127.0.0.1", "localhost"} or parsed_url.port != 54321:
-            parser.error("The local target must be http(s)://localhost:54321")
-    elif parsed_url.hostname != f"{args.expected_project_ref}.supabase.co":
-        parser.error("--supabase-url host does not match --expected-project-ref")
-    if args.expected_project_ref != "local" and not args.allow_production:
-        parser.error("Refusing to write dashboard summaries to a hosted project without --allow-production")
+    try:
+        url = validate_target(url, project_ref=args.expected_project_ref,
+                              expected_url=args.expected_url, allow_production=args.allow_production)
+    except ValueError as exc:
+        parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     client = SupabaseRestClient(url, secret)
     for attempt in range(args.retries + 1):

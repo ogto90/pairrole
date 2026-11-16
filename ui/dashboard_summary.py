@@ -22,6 +22,15 @@ from matching.candidate_profile_persistence import PersistenceError, SupabaseRes
 SUMMARY_ALGORITHM_VERSION = 2
 PAGE_SIZE = 50
 DETAIL_FIELDS = {"description", "fit_strengths", "fit_gaps", "fit_job_snapshot"}
+
+
+def server_view_for_dashboard_status(status_filter: str) -> str:
+    """Map a dashboard queue to its server parent view before score filtering."""
+    # Ready-to-rate listings are part of the active, unaddressed set. The
+    # Needs attention view deliberately excludes ready listings.
+    return "Unaddressed" if status_filter == "Ready to rate" else status_filter
+
+
 SUMMARY_CARD_FIELDS = {
     "id", "source", "company", "title", "location", "remote_scope",
     "source_url", "application_url", "availability_status", "verification_status",

@@ -55,6 +55,17 @@ def _dashboard_job(job_id: int, title: str) -> DashboardJob:
     )
 
 
+def _job_ready_to_apply(job_id: int) -> DashboardJob:
+    return replace(
+        _dashboard_job(job_id, "Security Engineer"),
+        review_status="rated", fit_score=82, fit_assessment_id=job_id + 100,
+        is_manual=True, tailored_cv_id=job_id + 200,
+        tailored_tex_path=f"user-1/tailored/{job_id}/cv.tex",
+        tailored_pdf_path=f"user-1/tailored/{job_id}/cv.pdf",
+        tailored_expires_at="2099-01-01T00:00:00+00:00",
+    )
+
+
 def test_incremental_dashboard_sync_replaces_only_changed_cards(monkeypatch):
     original = _dashboard_job(1, "Unchanged")
     changed_before = _dashboard_job(2, "Old title")
@@ -194,9 +205,10 @@ def test_dashboard_initial_filter_resets_former_filter_to_needs_attention(monkey
 
 def test_mark_applied_twice_is_rejected_without_duplicate_application():
     client = FakeClient()
-    mark_applied(client, user_id="user-1", job_id=8, cv_version_id=2)
+    job = _job_ready_to_apply(8)
+    mark_applied(client, user_id="user-1", job_id=8, cv_version_id=2, job=job)
     with pytest.raises(PersistenceError, match="already applied"):
-        mark_applied(client, user_id="user-1", job_id=8, cv_version_id=2)
+        mark_applied(client, user_id="user-1", job_id=8, cv_version_id=2, job=job)
     assert len([write for write in client.writes if write[0] == "POST"]) == 1
     assert client.applications[0]["status"] == "applied"
 
@@ -205,7 +217,9 @@ def test_mark_applied_navigates_to_active_applications(monkeypatch):
     client = FakeClient()
     state = {}
     monkeypatch.setattr("ui.dashboard.st", SimpleNamespace(session_state=state))
-    _mark_applied_and_open_applications(client, user_id="user-1", job_id=8, cv_version_id=2)
+    _mark_applied_and_open_applications(
+        client, user_id="user-1", job_id=8, cv_version_id=2, job=_job_ready_to_apply(8)
+    )
     assert state["app_page"] == "Applications"
     assert state["application_stage_filter"] == "Active"
     assert client.applications[0]["status"] == "applied"
@@ -213,10 +227,8 @@ def test_mark_applied_navigates_to_active_applications(monkeypatch):
 
 def test_mark_applied_updates_card_snapshot_to_retained_without_expiry(monkeypatch):
     job = replace(
-        _dashboard_job(8, "Security Engineer"),
-        tailored_tex_path="user-1/tailored/8/cv.tex",
-        tailored_pdf_path="user-1/tailored/8/cv.pdf",
-        tailored_expires_at="2026-11-01T00:00:00+00:00",
+        _job_ready_to_apply(8),
+        tailored_expires_at="2026-12-01T00:00:00+00:00",
     )
     state = {
         "dashboard_jobs_snapshot_by_user": {"user-1": [job]},
@@ -226,7 +238,7 @@ def test_mark_applied_updates_card_snapshot_to_retained_without_expiry(monkeypat
     }
     monkeypatch.setattr("ui.dashboard.st", SimpleNamespace(session_state=state))
 
-    mark_applied(FakeClient(), user_id="user-1", job_id=8, cv_version_id=2)
+    mark_applied(FakeClient(), user_id="user-1", job_id=8, cv_version_id=2, job=job)
 
     updated = state["dashboard_jobs_snapshot_by_user"]["user-1"][0]
     assert updated.review_status == "applied"
@@ -240,9 +252,26 @@ def test_failed_mark_applied_does_not_change_dashboard_section(monkeypatch):
     client.applications.append({"id": 1, "job_id": 8, "user_id": "user-1", "status": "applied"})
     state = {"dashboard_section": "Jobs"}
     monkeypatch.setattr("ui.dashboard.st", SimpleNamespace(session_state=state))
-    _mark_applied_and_open_applications(client, user_id="user-1", job_id=8, cv_version_id=2)
+    _mark_applied_and_open_applications(
+        client, user_id="user-1", job_id=8, cv_version_id=2, job=_job_ready_to_apply(8)
+    )
     assert state["dashboard_section"] == "Jobs"
     assert "application_action_error" in state
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        _dashboard_job(8, "Security Engineer"),
+        replace(_job_ready_to_apply(8), tailored_pdf_path=None),
+    ],
+    ids=["not-rated", "no-tailored-cv"],
+)
+def test_mark_applied_requires_rating_and_usable_tailored_cv(job):
+    client = FakeClient()
+    with pytest.raises(PersistenceError, match="Rate this listing and generate"):
+        mark_applied(client, user_id="user-1", job_id=8, cv_version_id=2, job=job)
+    assert not client.writes
 
 
 def test_archive_is_user_scoped_and_idempotent():
@@ -333,7 +362,7 @@ def test_bulk_rating_starts_in_background_and_deselects_jobs(monkeypatch):
     job = DashboardJob(
         id=18, source="manual", company="Example", title="Security Engineer",
         location=None, remote_scope=None, source_url=None, application_url=None,
-        availability_status="active", verification_status="verified", review_status="new",
+        availability_status="active", verification_status="verified", review_status="rated",
         posted_at=None, first_seen_at=None, last_seen_at=None, fit_score=None,
         fit_assessment_id=None, description="Full job description", description_kind="full",
         is_manual=True,
@@ -840,7 +869,7 @@ def test_listing_url_save_changes_only_the_application_link():
     assert payload == {"application_url": "https://example.test/jobs/8"}
 
 
-def test_global_acceptance_lists_reviewable_fields_and_blocks_missing_full_jd():
+def test_global_acceptance_allows_one_listing_override_before_full_jd_is_added():
     job = replace(
         _dashboard_job(88, "Security Engineer"),
         role_eligibility="target_adjacent", role_reason="Role relevance needs review.",
@@ -849,12 +878,27 @@ def test_global_acceptance_lists_reviewable_fields_and_blocks_missing_full_jd():
     )
     assert dashboard._listing_acceptance_fields(job) == ("role", "location")
     blockers = dashboard._listing_acceptance_blockers(job, active_profile_id=7)
-    assert any("verified full job description" in item for item in blockers)
+    assert not any("job description" in item for item in blockers)
     ready = replace(job, description_kind="full", description_available=True)
     assert dashboard._listing_acceptance_blockers(ready, active_profile_id=7) == ()
     assert "Verify that this exact listing is still open first." in dashboard._listing_acceptance_blockers(
         replace(ready, availability_status="unknown"), active_profile_id=7
     )
+
+
+def test_location_review_requires_acceptance_before_manual_jd_fit():
+    job = replace(
+        _dashboard_job(89, "Security Engineer"),
+        role_eligibility="target_match",
+        location_eligibility="unclear",
+        description_kind="missing",
+        description_available=False,
+    )
+
+    assert not dashboard._can_add_jd_for_review(job)
+    accepted = replace(job, preference_override_fields=("location",))
+    assert dashboard._listing_acceptance_fields(accepted) == ()
+    assert dashboard._can_add_jd_for_review(accepted)
 
 
 def test_archive_action_requests_a_full_rerun_when_membership_changes(monkeypatch):
@@ -1013,14 +1057,15 @@ def test_individual_section_selection_keeps_select_all_state_in_sync(monkeypatch
 
 def test_rendering_ready_to_rate_job_does_not_invoke_fit(monkeypatch):
     buttons = []
+    checkboxes = []
     context = nullcontext()
     monkeypatch.setattr("ui.dashboard.rate_job_with_manual_jd", lambda *args, **kwargs: pytest.fail("render must not rate"))
     monkeypatch.setattr("ui.dashboard.st", SimpleNamespace(
         session_state={},
                 container=lambda **_: context,
                 empty=lambda: SimpleNamespace(container=lambda: context),
-                checkbox=lambda *_args, **_kwargs: False,
-            columns=lambda sizes: [context for _ in range(sizes)] if isinstance(sizes, int) else [context for _ in sizes],
+                checkbox=lambda *args, **kwargs: checkboxes.append((args, kwargs)) or False,
+            columns=lambda sizes, **_: [context for _ in range(sizes)] if isinstance(sizes, int) else [context for _ in sizes],
         markdown=lambda *_args, **_kwargs: None,
         subheader=lambda *_args, **_kwargs: None,
         link_button=lambda *_args, **_kwargs: None,
@@ -1035,9 +1080,33 @@ def test_rendering_ready_to_rate_job_does_not_invoke_fit(monkeypatch):
         fit_fingerprint="f" * 64, description="Complete JD", description_kind="full", is_manual=True,
     )
     from ui.dashboard import _render_job
-    getattr(_render_job, "__wrapped__", _render_job)(row, object(), user_id="user-1", cv_version_id=3, active_profile_id=7, storage_bucket="private")
+    getattr(_render_job, "__wrapped__", _render_job)(
+        row, object(), user_id="user-1", cv_version_id=3, active_profile_id=7,
+        storage_bucket="private", selection_job_ids=[11, 12], selection_state_key="select-all-Ready to rate",
+    )
 
     assert "Rate job" in buttons
+    card_selection = next(kwargs for args, kwargs in checkboxes if kwargs.get("key") == "archive-select-11")
+    assert card_selection["on_change"].__name__ == "_sync_section_selection"
+    assert card_selection["args"] == ([11, 12], "select-all-Ready to rate")
+    assert card_selection["label_visibility"] == "collapsed"
+
+
+def test_section_selection_keeps_select_all_without_individual_listing_dropdown(monkeypatch):
+    calls = []
+    monkeypatch.setattr("ui.dashboard.st", SimpleNamespace(
+        session_state={},
+        checkbox=lambda *args, **kwargs: calls.append((args, kwargs)),
+        expander=lambda *_args, **_kwargs: pytest.fail("individual listing dropdown should be removed"),
+    ))
+    from ui.dashboard import _render_section_selection
+
+    job = _job_for_retry(21, "target_match")
+    _render_section_selection("Ready to rate", [job])
+
+    assert len(calls) == 1
+    assert calls[0][0] == ("Select all in Ready to rate",)
+    assert calls[0][1]["key"] == "select-all-Ready to rate"
 
 
 def test_mark_applied_navigates_to_applications_without_mutating_status_widget(monkeypatch):
@@ -1056,7 +1125,7 @@ def test_mark_applied_navigates_to_applications_without_mutating_status_widget(m
                 container=lambda **_: context,
                 empty=lambda: SimpleNamespace(container=lambda: context),
                 checkbox=lambda *_args, **_kwargs: False,
-            columns=lambda sizes: [context for _ in range(sizes)] if isinstance(sizes, int) else [context for _ in sizes],
+            columns=lambda sizes, **_: [context for _ in range(sizes)] if isinstance(sizes, int) else [context for _ in sizes],
         markdown=lambda *_args, **_kwargs: None,
         subheader=lambda *_args, **_kwargs: None,
         link_button=lambda *_args, **_kwargs: None,
@@ -1067,9 +1136,11 @@ def test_mark_applied_navigates_to_applications_without_mutating_status_widget(m
     row = DashboardJob(
         id=12, source="manual", company="Acme", title="Security Lead", location=None,
         remote_scope=None, source_url="https://example.test/job/12", application_url=None,
-        availability_status="active", verification_status="verified", review_status="new",
+        availability_status="active", verification_status="verified", review_status="rated",
         posted_at=None, first_seen_at=None, last_seen_at=None, fit_score=80, fit_assessment_id=9,
         description="Complete JD", description_kind="full", is_manual=True,
+        tailored_tex_path="user/tailored/12/cv.tex", tailored_pdf_path="user/tailored/12/cv.pdf",
+        tailored_expires_at="2099-01-01T00:00:00+00:00",
     )
     from ui.dashboard import _render_job
     getattr(_render_job, "__wrapped__", _render_job)(row, object(), user_id="user-1", cv_version_id=3, active_profile_id=7, storage_bucket="private")
@@ -1077,3 +1148,50 @@ def test_mark_applied_navigates_to_applications_without_mutating_status_widget(m
     assert status["dashboard_status"] == "Unaddressed"
     assert status["app_page"] == "Applications"
     assert status["application_stage_filter"] == "Active"
+
+
+def test_saved_manual_jd_refreshes_card_when_fit_calculation_fails(monkeypatch):
+    from ui.manual_jd import ManualJDOperationError
+
+    class Rerun(Exception):
+        pass
+
+    state = {"manual_jd_job_id": 12}
+    monkeypatch.setattr(dashboard, "st", SimpleNamespace(
+        session_state=state,
+        spinner=lambda *_args, **_kwargs: nullcontext(),
+        rerun=lambda **_kwargs: (_ for _ in ()).throw(Rerun()),
+    ))
+    monkeypatch.setattr(
+        dashboard, "rate_job_with_manual_jd",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ManualJDOperationError("temporary model error", jd_saved=True)
+        ),
+    )
+    monkeypatch.setattr(dashboard, "_fit_fingerprint_for_job", lambda *_args: "fp")
+    overrides = []
+    refreshed = []
+    monkeypatch.setattr(dashboard, "_record_dashboard_lifecycle_override",
+                        lambda user_id, job_id, **fields: overrides.append((user_id, job_id, fields)))
+    monkeypatch.setattr(dashboard, "_refresh_listing_summary_after_action",
+                        lambda client, *, user_id, job_id: refreshed.append((user_id, job_id)))
+    job = DashboardJob(
+        id=12, source="test", company="Acme", title="Security Engineer", location="Germany",
+        remote_scope=None, source_url="https://example.test/12", application_url=None,
+        availability_status="active", verification_status="verified", review_status="new",
+        posted_at=None, first_seen_at=None, last_seen_at=None, fit_score=None,
+        fit_assessment_id=None,
+        description=None, description_kind="missing",
+    )
+
+    with pytest.raises(Rerun):
+        dashboard._save_and_rate(
+            job, "Complete job description", object(), "user-1", 3, 7, {},
+        )
+
+    assert overrides[0][2]["description"] == "Complete job description"
+    assert overrides[0][2]["description_kind"] == "full"
+    assert overrides[0][2]["description_available"] is True
+    assert refreshed == [("user-1", 12)]
+    assert "job description was saved" in state["manual_jd_flash"]
+    assert "manual_jd_job_id" not in state

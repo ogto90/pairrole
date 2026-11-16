@@ -198,6 +198,16 @@ def test_general_selection_supports_ignore_and_rate_when_each_is_applicable():
     assert not can_rate_job(rated)
 
 
+def test_historical_rating_with_full_jd_can_be_rated_against_current_profile():
+    historical = replace(
+        job(6), historical_fit_score=44, previous_profile_rating=True,
+        description="Full JD", description_kind="full",
+    )
+    assert not historical.ready_to_rate
+    assert can_rate_job(historical)
+    assert can_select_job(historical)
+
+
 def test_dashboard_applies_only_matching_user_contract_decision_for_same_jd():
     description = "This is a contract position. " + "The security engineer will work with the team and build secure systems. " * 8
     profile = {"definition": {
@@ -837,12 +847,13 @@ def test_not_actionable_render_is_read_only(monkeypatch):
     fake_streamlit = SimpleNamespace(
         session_state={},
         container=lambda **kwargs: nullcontext(),
-        columns=lambda spec: [Column() for _ in spec],
+        columns=lambda spec, **_: [Column() for _ in spec],
         markdown=lambda *args, **kwargs: None,
         subheader=lambda *args, **kwargs: None,
         caption=lambda *args, **kwargs: None,
         link_button=lambda *args, **kwargs: None,
         button=lambda *args, **kwargs: False,
+        checkbox=lambda *args, **kwargs: False,
         expander=lambda *args, **kwargs: nullcontext(),
         warning=lambda *args, **kwargs: None,
     )

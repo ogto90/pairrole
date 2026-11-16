@@ -99,19 +99,26 @@ def test_different_cards_can_generate_independently(setup):
     assert dashboard._job_operation_busy(8) and dashboard._job_operation_busy(9)
 
 
-def test_poll_notifies_once_and_never_reloads_dashboard(setup, monkeypatch):
+def test_poll_notifies_once_and_reloads_apply_eligibility(setup, monkeypatch):
     _, submitted, job = setup
     notifications = []
     renders = []
+    reruns = []
+
+    class AppRerun(Exception):
+        pass
+
     dashboard.st.toast = notifications.append
+    dashboard.st.rerun = lambda: (reruns.append(True), (_ for _ in ()).throw(AppRerun()))
     monkeypatch.setattr(dashboard, "_render_cv_actions", lambda *args: renders.append(args[0].id))
     dashboard._generate_cv(job, object(), "user-1", 2, 7, "private", force=False)
     submitted[0][0].set_result({"row": {"id": 42, "pdf_file_path": "user-1/tailored/8/cv.pdf"}})
     poll = dashboard._poll_cv_controls.__wrapped__
-    for _ in range(2):
+    with pytest.raises(AppRerun):
         poll(job, object(), "user-1", 2, 7, "private")
     assert len(notifications) == 1
-    assert renders == [8, 8]
+    assert reruns == [True]
+    assert renders == []
 
 
 def test_ready_download_is_read_once_and_keeps_existing_actions(setup, monkeypatch):

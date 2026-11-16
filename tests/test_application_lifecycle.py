@@ -1,4 +1,5 @@
 from datetime import datetime
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +14,10 @@ from matching.application_lifecycle import (
     workflow_timestamp_column,
 )
 from ui.dashboard import transition_job_lifecycle
-from ui.dashboard_data import DashboardJob, can_generate_cv, can_archive_job, can_rerate_job, group_application_jobs, group_dashboard_jobs
+from ui.dashboard_data import (
+    DashboardJob, can_apply_job, can_generate_cv, can_archive_job, can_rerate_job,
+    group_application_jobs, group_dashboard_jobs,
+)
 from matching.candidate_profile_persistence import PersistenceError
 
 
@@ -62,6 +66,30 @@ def test_application_state_overrides_fit_without_changing_fit(status):
 def test_application_status_takes_precedence_over_older_review_archive_state():
     assert lifecycle_state({"status": "applied"}, {"status": "ignored"}, has_current_fit=True) == "applied"
     assert lifecycle_state({"status": "applied"}, {"status": "archived"}, has_current_fit=True) == "applied"
+
+
+def test_compact_ready_card_can_rate_without_hydrated_description():
+    job = replace(
+        _job(state="new", score=None, description=None),
+        description_kind="full", description_available=True,
+        is_manual=False, role_eligibility="target_match",
+        location_eligibility="eligible", employment_type_eligibility="eligible",
+        seniority_eligibility="eligible",
+    )
+    assert job.ready_to_rate
+    assert can_rerate_job(job)
+
+
+def test_apply_requires_current_rating_and_usable_tailored_cv():
+    rated = replace(
+        _job(),
+        tailored_tex_path="user/tailored/1/cv.tex",
+        tailored_pdf_path="user/tailored/1/cv.pdf",
+        tailored_expires_at="2099-01-01T00:00:00+00:00",
+    )
+    assert can_apply_job(rated)
+    assert not can_apply_job(replace(rated, review_status="new", fit_score=None, fit_assessment_id=None))
+    assert not can_apply_job(replace(rated, tailored_pdf_path=None))
 
 
 def test_ignore_and_archive_apply_when_no_application_workflow_exists():
@@ -151,6 +179,13 @@ def test_invalid_transition_is_rejected_without_a_write():
 def test_applied_cannot_be_marked_applied_again():
     client = FakeClient(application={"id": 4, "status": "applied"})
     with pytest.raises(PersistenceError, match="already applied"):
+        transition_job_lifecycle(client, user_id="u1", job_id=12, target="applied")
+    assert client.writes == []
+
+
+def test_new_listing_cannot_be_marked_applied_without_rating_and_tailored_cv():
+    client = FakeClient()
+    with pytest.raises(PersistenceError, match="Rate this listing and generate"):
         transition_job_lifecycle(client, user_id="u1", job_id=12, target="applied")
     assert client.writes == []
 

@@ -40,6 +40,8 @@ class Phase0MigrationReviewTests(unittest.TestCase):
             "20261102135010_needs_attention_exclude_known_mismatch.sql",
             "20261102135836_attention_reuse_current_state.sql",
             "20261102152154_dashboard_summary_content_revision.sql",
+            "20261105101602_fix_dashboard_ready_filter.sql",
+            "20261106110502_preserve_handled_summaries_on_profile_change.sql",
         ]
         self.assertEqual(actual, expected + later_migrations)
         versions = [name.split("_", 1)[0] for name in actual]
