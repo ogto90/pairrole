@@ -9,6 +9,7 @@ from ui.manual_jd import (
     MAX_MANUAL_JD_CHARS,
     MIN_MANUAL_JD_CHARS,
     ManualJDOperationError,
+    ManualJDReviewRequired,
     ManualEmploymentTypeDecisionRequired,
     manual_jd_sha256,
     ManualJDValidationError,
@@ -71,6 +72,7 @@ class FakeManualClient:
         }
         self.cached = cached
         self.fail_insert = fail_insert
+        self.zero_job_update = False
         self.writes = []
         self.metadata_override = None
         self.location_verifications = []
@@ -112,9 +114,11 @@ class FakeManualClient:
         if method == "POST" and path.startswith("/rest/v1/user_job_employment_type_verifications"):
             self.employment_type_verifications = [payload]
             return None
-        if method == "PATCH" and path == "/rest/v1/jobs?id=eq.8":
+        if method == "PATCH" and path.startswith("/rest/v1/jobs?id=eq.8"):
+            if self.zero_job_update:
+                return []
             self.job.update(payload)
-            return None
+            return [{"id": 8, "description_kind": self.job["description_kind"]}]
         if method == "POST" and path == "/rest/v1/job_match_assessments":
             if self.fail_insert:
                 raise RuntimeError("insert failed")
@@ -395,7 +399,7 @@ def test_manual_jd_can_rate_legacy_job_without_external_listing_url():
     assert ai.calls == 1
 
 
-def test_discovered_non_security_role_is_rejected_before_jd_write_or_ai_call():
+def test_discovered_non_security_role_saves_jd_for_review_but_blocks_rating():
     client = FakeManualClient()
     client.job["title"] = "Senior Software Engineer"
     ai = FakeAI()
@@ -409,8 +413,9 @@ def test_discovered_non_security_role_is_rejected_before_jd_write_or_ai_call():
             jd_text=VALID_JD,
             ai_client=ai,
         )
-    assert error.value.jd_saved is False
-    assert client.writes == []
+    assert error.value.jd_saved is True
+    assert client.job["description"] == validate_manual_jd(VALID_JD)
+    assert any(method == "PATCH" and path.startswith("/rest/v1/jobs?id=eq.8") for method, path, _ in client.writes)
     assert ai.calls == 0
 
 
@@ -445,17 +450,61 @@ def test_saved_global_listing_acceptance_is_revalidated_for_fit_rating():
     assert ai.calls == 1
 
 
-def test_unapproved_location_mismatch_still_blocks_rating_before_writes_or_ai():
+def test_manual_jd_is_saved_for_review_when_location_preference_blocks_fit():
     client = FakeManualClient()
-    client.job.update(location="Serbia", remote_scope="Remote")
-    ai = FakeAI()
-    with pytest.raises(ManualJDOperationError, match="location"):
+    client.job.update(location="Korntal-Münchingen", remote_scope=None)
+    ai = FakeAI(score=76)
+
+    with pytest.raises(ManualJDReviewRequired, match="job description was saved"):
         rate_job_with_manual_jd(
             client, user_id="user-1", cv_version_id=2, candidate_profile_id=7,
             job_id=8, jd_text=VALID_JD, ai_client=ai,
         )
-    assert client.writes == []
+
+    assert client.job["description"] == normalize_manual_jd(VALID_JD)
+    assert client.job["description_kind"] == "full"
+    assert not any(write[0] == "POST" and write[1].startswith("/rest/v1/job_match_assessments") for write in client.writes)
     assert ai.calls == 0
+
+    client.preference_overrides = [{
+        "user_id": "user-1", "job_id": 8,
+        "overridden_preferences": ["location"], "is_active": True,
+    }]
+    result = rate_job_with_manual_jd(
+        client, user_id="user-1", cv_version_id=2, candidate_profile_id=7,
+        job_id=8, jd_text=VALID_JD, ai_client=ai,
+    )
+    assert result["fit_score"] == 76
+    assert ai.calls == 1
+
+
+def test_unapproved_location_mismatch_saves_jd_for_review_but_blocks_rating():
+    client = FakeManualClient()
+    client.job.update(location="United States", remote_scope="Remote")
+    ai = FakeAI()
+    with pytest.raises(ManualJDOperationError, match="not eligible for Fit") as error:
+        rate_job_with_manual_jd(
+            client, user_id="user-1", cv_version_id=2, candidate_profile_id=7,
+            job_id=8, jd_text=VALID_JD, ai_client=ai,
+        )
+    assert error.value.jd_saved is True
+    assert client.job["description"] == validate_manual_jd(VALID_JD)
+    assert any(method == "PATCH" and path.startswith("/rest/v1/jobs?id=eq.8") for method, path, _ in client.writes)
+    assert ai.calls == 0
+
+
+def test_manual_jd_save_detects_postgrest_zero_row_update():
+    client = FakeManualClient()
+    client.zero_job_update = True
+
+    with pytest.raises(ManualJDOperationError, match="matched no row") as error:
+        rate_job_with_manual_jd(
+            client, user_id="user-1", cv_version_id=2, candidate_profile_id=7,
+            job_id=8, jd_text=VALID_JD, ai_client=FakeAI(),
+        )
+
+    assert error.value.jd_saved is False
+    assert client.job["description"] is None
 
 
 def test_discovered_validation_failed_role_is_not_rated():
@@ -545,3 +594,34 @@ def test_rating_failure_keeps_saved_jd_and_never_fabricates_zero():
     assert error.value.jd_saved is True
     assert client.job["description_kind"] == "full"
     assert not any(write[0] == "PATCH" and write[1].startswith("/rest/v1/job_match_assessments") for write in client.writes)
+
+
+@pytest.mark.parametrize('recover', [True, False])
+def test_location_read_retries_connection_failure_without_bypassing_approval(recover):
+    from urllib.error import URLError
+
+    client = FakeManualClient()
+    original = client.get_json
+    calls = []
+
+    def get_json(path):
+        if path.startswith('/rest/v1/user_job_location_verifications?'):
+            calls.append(path)
+            if len(calls) == 1 or not recover:
+                raise PersistenceError('Connection failed') from URLError('temporary failure')
+        return original(path)
+
+    client.get_json = get_json
+    ai = FakeAI(score=74)
+    kwargs = dict(user_id='user-1', cv_version_id=2, candidate_profile_id=7,
+                  job_id=8, jd_text=VALID_JD, ai_client=ai)
+    if recover:
+        assert rate_job_with_manual_jd(client, **kwargs)['fit_score'] == 74
+        assert ai.calls == 1
+    else:
+        with pytest.raises(ManualJDOperationError, match='Please retry') as error:
+            rate_job_with_manual_jd(client, **kwargs)
+        assert error.value.jd_saved is False
+        assert client.writes == []
+        assert ai.calls == 0
+    assert len(calls) == 2

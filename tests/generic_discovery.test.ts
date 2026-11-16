@@ -803,6 +803,44 @@ describe("generic discovery", () => {
     }
   })
 
+  test("legacy rediscovery cannot replace a full JD saved after its existing-row snapshot was loaded", async () => {
+    const originalFetch = globalThis.fetch
+    const requests: Array<{ url: string; method: string; body: any }> = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? "GET"
+      const body = init?.body ? JSON.parse(String(init.body)) : null
+      requests.push({ url, method, body })
+      if (url.includes("resolve_job_source_observation")) {
+        return new Response(JSON.stringify({ code: "PGRST202" }), { status: 404 })
+      }
+      return new Response(null, { status: 204 })
+    }) as typeof fetch
+    try {
+      const store = new SupabaseDiscoveryStore("https://example.supabase.co", "secret")
+      const normalized = normalizeDiscoveredJob(raw({
+        id: "backend-rediscovered",
+        title: "Security Engineer",
+        company: "Acme",
+        url: "https://jobs.example/rediscovered",
+        description: "A short source teaser.",
+      }), "mock")!
+      const job = { ...normalized, description: "A short source teaser.", descriptionKind: "snippet" as const }
+      const existing = { id: 42, description: "A stale teaser", description_kind: "snippet" }
+
+      await store.upsertJob({ job, existing, now: "2026-10-07T10:00:00Z" })
+
+      expect(requests.map(({ method }) => method)).toEqual(["POST", "PATCH", "PATCH"])
+      expect(requests[1].body).not.toHaveProperty("description")
+      expect(requests[1].body).not.toHaveProperty("description_kind")
+      expect(requests[2].url).toContain("id=eq.42")
+      expect(requests[2].url).toContain("description_kind=neq.full")
+      expect(requests[2].body).toEqual({ description: "A short source teaser.", description_kind: "snippet" })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test("does not mask resolver permission or validation failures with legacy persistence", async () => {
     const originalFetch = globalThis.fetch
     let calls = 0

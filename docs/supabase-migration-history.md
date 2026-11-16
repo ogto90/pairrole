@@ -1,5 +1,18 @@
 # Supabase Migration History
 
+## Local deployment, 2026-11-16
+
+The production backend moved to the isolated `pairrole-local` self-hosted
+deployment. The final source ledger contained 28 migrations, through
+`20261105101602_fix_dashboard_ready_filter.sql`; that ledger and deployed schema
+were restored together. The working-tree migration
+`20261106110502_preserve_handled_summaries_on_profile_change.sql` was not present
+in the source ledger and was deliberately not applied as part of the hosting
+move. Review it separately before deployment.
+
+The October reconciliation below is historical, not the current migration count.
+See [local operations](local-supabase.md) for service control, backups and recovery.
+
 ## Current Reconciled Layout
 
 As of 2026-10-11, the production ledger and active local chain contain the

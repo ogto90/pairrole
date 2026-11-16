@@ -769,7 +769,9 @@ def can_archive_job(job: DashboardJob) -> bool:
 def can_rate_job(job: DashboardJob) -> bool:
     """Whether this job can use the existing score/retry workflow now."""
     from matching.application_lifecycle import can_rate_state
-    return can_rate_state(job.lifecycle_status) and (job.ready_to_rate or job.rating_failed)
+    return can_rate_state(job.lifecycle_status) and (
+        job.ready_to_rate or job.rating_failed or (job.previous_profile_rating and can_rerate_job(job))
+    )
 
 
 def can_generate_cv(job: DashboardJob) -> bool:
@@ -779,10 +781,27 @@ def can_generate_cv(job: DashboardJob) -> bool:
 
 def can_rerate_job(job: DashboardJob) -> bool:
     from matching.application_lifecycle import can_rate_state
+    has_full_jd = job.description_kind == "full" and (
+        bool(job.description) if job.description_available is None else job.description_available
+    )
     return (
         can_rate_state(job.lifecycle_status)
         and job.actionable and job.live_for_user
-        and job.description_kind == "full" and bool(job.description)
+        and has_full_jd
+    )
+
+
+def can_apply_job(job: DashboardJob) -> bool:
+    """Only allow applying after a current Fit rating and usable tailored CV exist."""
+    from matching.application_lifecycle import can_apply_state
+    return (
+        can_apply_state(job.lifecycle_status)
+        and job.lifecycle_status == "rated"
+        and job.fit_score is not None
+        and job.fit_assessment_id is not None
+        and job.actionable
+        and job.live_for_user
+        and job.tailored_artifact_available
     )
 
 

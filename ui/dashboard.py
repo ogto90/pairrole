@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import time
+from threading import Lock
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
 
@@ -49,6 +50,7 @@ from matching.job_description import classify_job_description
 from matching.job_eligibility import assess_discovered_job
 from .manual_jd import (
     ManualEmploymentTypeDecisionRequired,
+    ManualJDReviewRequired,
     ManualJDOperationError,
     ManualJDValidationError,
     manual_jd_sha256,
@@ -56,12 +58,14 @@ from .manual_jd import (
     rate_job_with_manual_jd,
 )
 from .preference_override import load_preference_overrides, remove_preference_override, save_preference_override
+from .discovery_history import render_latest_discovery
 from .dashboard_data import (
     DashboardJob,
     application_view_jobs,
     can_rate_job,
     can_select_job,
     can_archive_job,
+    can_apply_job,
     can_retry_pending_evidence,
     can_generate_cv,
     can_rerate_job,
@@ -107,6 +111,9 @@ _CV_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tailored-cv
 _CHANGE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="change-check")
 _CONTEXT_READ_EXECUTOR = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dashboard-read")
 _PREFERENCE_OVERRIDE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="listing-preference")
+_SUMMARY_REFRESH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-summary")
+_SUMMARY_REFRESH_LOCK = Lock()
+_SUMMARY_REFRESH_FUTURES: dict[tuple[str, str], Future] = {}
 
 
 @st.cache_data(ttl=30, max_entries=128, show_spinner=False)
@@ -365,6 +372,9 @@ def _post_it_styles() -> None:
             font-weight: 700;
             letter-spacing: 0.08em;
             padding: 0.18rem 0.45rem;
+        }
+        [class*="st-key-job-status-row-"] [data-testid="stCheckbox"] {
+            transform: translateY(-0.5rem);
         }
         .gap-item-meter {
             background: #2b3040;
@@ -1112,6 +1122,7 @@ def transition_job_lifecycle(
     target: str,
     cv_version_id: int | None = None,
     has_current_fit: bool = False,
+    job: DashboardJob | None = None,
     update_session_state: bool = True,
 ) -> None:
     """Persist a validated user-specific lifecycle action; never mutate jobs."""
@@ -1139,6 +1150,8 @@ def transition_job_lifecycle(
                 cleanup_archived_cv()
             return
         raise PersistenceError(f"This listing is already {target}.")
+    if target == "applied" and (job is None or job.id != job_id or not can_apply_job(job)):
+        raise PersistenceError("Rate this listing and generate a usable tailored CV before marking it applied.")
     if target == "reopen":
         if target not in ALLOWED_TRANSITIONS.get(state, frozenset()):
             raise PersistenceError(f"Cannot reopen a listing in state {state}.")
@@ -1213,9 +1226,19 @@ def transition_job_lifecycle(
     )
 
 
-def mark_applied(client: SupabaseRestClient, *, user_id: str, job_id: int, cv_version_id: int) -> None:
+def mark_applied(
+    client: SupabaseRestClient,
+    *,
+    user_id: str,
+    job_id: int,
+    cv_version_id: int,
+    job: DashboardJob,
+) -> None:
+    if job.id != job_id or not can_apply_job(job):
+        raise PersistenceError("Rate this listing and generate a usable tailored CV before marking it applied.")
     transition_job_lifecycle(
-        client, user_id=user_id, job_id=job_id, target="applied", cv_version_id=cv_version_id
+        client, user_id=user_id, job_id=job_id, target="applied", cv_version_id=cv_version_id,
+        job=job, has_current_fit=job.fit_score is not None,
     )
 
 
@@ -1225,9 +1248,10 @@ def _mark_applied_and_open_applications(
     user_id: str,
     job_id: int,
     cv_version_id: int,
+    job: DashboardJob,
 ) -> None:
     try:
-        mark_applied(client, user_id=user_id, job_id=job_id, cv_version_id=cv_version_id)
+        mark_applied(client, user_id=user_id, job_id=job_id, cv_version_id=cv_version_id, job=job)
     except (PersistenceError, ValueError) as exc:
         st.session_state["application_action_error"] = str(exc)
         return
@@ -1992,15 +2016,39 @@ def _start_preference_override_task(
 
 def _listing_acceptance_fields(job: DashboardJob) -> tuple[str, ...]:
     fields = []
-    if job.role_eligibility == "target_adjacent":
+    accepted = set(job.preference_override_fields)
+    if job.role_eligibility == "target_adjacent" and "role" not in accepted:
         fields.append("role")
-    if job.location_eligibility in {"unclear", "ineligible"}:
+    if job.location_eligibility in {"unclear", "ineligible"} and "location" not in accepted:
         fields.append("location")
-    if job.employment_type_eligibility in {"unclear", "ineligible"}:
+    if job.employment_type_eligibility in {"unclear", "ineligible"} and "employment_type" not in accepted:
         fields.append("employment_type")
-    if job.seniority_eligibility in {"unclear", "ineligible"}:
+    if job.seniority_eligibility in {"unclear", "ineligible"} and "seniority" not in accepted:
         fields.append("seniority")
     return tuple(fields)
+
+
+def _has_full_job_description(job: DashboardJob) -> bool:
+    return job.description_kind == "full" and (
+        bool(job.description) if job.description_available is None else job.description_available
+    )
+
+
+def _can_add_jd_for_review(job: DashboardJob) -> bool:
+    """Whether this card can open the manual JD editor without bypassing review gates."""
+    has_full_jd = _has_full_job_description(job)
+    if has_full_jd:
+        return False
+    if job.jd_required:
+        return True
+    return (
+        bool(job.preference_override_fields)
+        and not _listing_acceptance_fields(job)
+        and job.review_status == "new"
+        and job.live_for_user
+        and not job.metadata_unresolved
+        and job.duplicate_review_status != "pending"
+    )
 
 
 def _listing_acceptance_blockers(job: DashboardJob, *, active_profile_id: int | None) -> tuple[str, ...]:
@@ -2015,11 +2063,6 @@ def _listing_acceptance_blockers(job: DashboardJob, *, active_profile_id: int | 
         blockers.append("Verify that this exact listing is still open first.")
     if active_profile_id is None and not job.is_manual:
         blockers.append("An active SearchProfile is required to review this listing.")
-    has_full_jd = job.description_kind == "full" and (
-        bool(job.description) if job.description_available is None else job.description_available
-    )
-    if not has_full_jd:
-        blockers.append("A verified full job description is required before accepting this listing.")
     if job.review_status in {"applied", "interview", "offer", "hired", "rejected", "no_response", "withdrawn", "ignored", "archived", "closed"}:
         blockers.append("This listing already has a recorded outcome.")
     return tuple(blockers)
@@ -2062,6 +2105,8 @@ def _render_job(
     application_view: bool = False,
     archive_view: bool = False,
     application_action_blocked: bool = False,
+    selection_job_ids: list[int] | None = None,
+    selection_state_key: str | None = None,
 ) -> None:
     job = replace(job, **_dashboard_job_overrides(user_id, job.id, job=job))
     failed_fingerprints: dict[int, str] = {
@@ -2094,7 +2139,20 @@ def _render_job(
             )
             if job.source == "manual":
                 badge = "MANUAL · " + badge
-            st.markdown(f"<div class='job-status'>{badge}</div>", unsafe_allow_html=True)
+            with st.container(key=f"job-status-row-{job.id}"):
+                status_row = st.columns([0.05, 1], gap="small")
+                with status_row[0]:
+                    if not archive_view and can_select_job(job) and not card_busy:
+                        st.checkbox(
+                            "Select listing",
+                            key=f"archive-select-{job.id}",
+                            help="Select this listing for bulk rating or archiving.",
+                            label_visibility="collapsed",
+                            on_change=_sync_section_selection if selection_state_key else None,
+                            args=(selection_job_ids or [job.id], selection_state_key) if selection_state_key else (),
+                        )
+                with status_row[1]:
+                    st.markdown(f"<div class='job-status'>{badge}</div>", unsafe_allow_html=True)
             _render_metadata_field(
                 job, "title", job.title,
                 client=client, user_id=user_id, disabled=card_busy,
@@ -2114,6 +2172,7 @@ def _render_job(
                     f"<div class='fit-badge'><span class='fit-badge-label'>OLD RATING</span><span class='fit-badge-score'>{job.historical_fit_score}</span></div>",
                     unsafe_allow_html=True,
                 )
+                st.caption("This rating is from an older profile. Add the full job description, then rate it with your current profile.")
             elif job.rating_failed:
                 st.markdown("<div class='fit-badge fit-badge-muted'>RATING FAILED</div>", unsafe_allow_html=True)
             elif job.jd_required:
@@ -2209,7 +2268,10 @@ def _render_job(
         acceptance_fields = _listing_acceptance_fields(job)
         if acceptance_fields and not archive_view:
             st.markdown("**Needs your review**")
-            st.caption("Accept this listing to continue, or archive it to dismiss it.")
+            st.caption(
+                "Accept applies an exception only to this listing; it does not change your saved preferences. "
+                "After accepting, add the full job description to calculate Fit."
+            )
             for field in acceptance_fields:
                 detail = {
                     "role": job.role_reason,
@@ -2222,13 +2284,7 @@ def _render_job(
             if blockers:
                 for blocker in blockers:
                     st.warning(blocker)
-            has_full_jd = job.description_kind == "full" and (
-                bool(job.description) if job.description_available is None else job.description_available
-            )
-            if not has_full_jd and can_retry_pending_evidence(job):
-                if st.button("Retry evidence", key=f"accept-retry-evidence-{job.id}", disabled=card_busy):
-                    _retry_pending_jobs([job], user_id=user_id)
-            if not job.preference_override_fields:
+            if acceptance_fields:
                 if st.button(
                     "Accept for this listing",
                     key=f"accept-pref-override-{job.id}",
@@ -2238,6 +2294,10 @@ def _render_job(
                         client, user_id=user_id, job_id=job.id, fields=acceptance_fields
                     )
                     st.rerun()
+        if not archive_view and _can_add_jd_for_review(job):
+            if st.button("Add JD", key=f"review-add-jd-{job.id}", disabled=card_busy):
+                st.session_state["manual_jd_job_id"] = job.id
+                st.rerun(scope="fragment")
         if job.preference_override_fields:
             st.caption(
                 "Preference accepted for this listing: "
@@ -2327,7 +2387,7 @@ def _render_job(
             ),
         )
 
-        if selected_job_id == job.id and job.jd_required:
+        if selected_job_id == job.id and (job.jd_required or _can_add_jd_for_review(job)):
             st.markdown("**Paste job description**")
             pasted = st.text_area("Job description", key=f"manual-jd-text-{job.id}", height=240, label_visibility="collapsed")
             pending_type = st.session_state.get("manual_employment_type_decision")
@@ -2440,9 +2500,9 @@ def _render_lifecycle_actions(
     elif job.fit_score is not None and can_rerate_job(job):
         if st.button("Re-rate", key=f"rerate-{job.id}", disabled=disabled):
             _retry_rating(job, client, user_id, cv_version_id, active_profile_id, failed_fingerprints)
-    if job.jd_required and st.button("Add JD", key=f"add-jd-{job.id}", disabled=disabled):
-        st.session_state["manual_jd_job_id"] = job.id
-        st.rerun(scope="fragment")
+    elif job.previous_profile_rating and can_rerate_job(job):
+        if st.button("Rate with current profile", key=f"rate-current-{job.id}", disabled=disabled):
+            _retry_rating(job, client, user_id, cv_version_id, active_profile_id, failed_fingerprints)
     if job.pending_category:
         pending_actions = st.columns(2)
         retry_label = None
@@ -2459,15 +2519,21 @@ def _render_lifecycle_actions(
 
     columns = st.columns([1, 1])
     if can_apply_state(state) and job.actionable and job.live_for_user:
-        with columns[0]:
-            st.button(
-                "Mark applied",
-                key=f"applied-{job.id}",
-                disabled=disabled or application_action_blocked,
-                on_click=_mark_applied_and_open_applications,
-                args=(client,),
-                kwargs={"user_id": user_id, "job_id": job.id, "cv_version_id": cv_version_id},
-            )
+        can_apply = can_apply_job(job)
+        if can_apply:
+            with columns[0]:
+                st.button(
+                    "Mark applied",
+                    key=f"applied-{job.id}",
+                    disabled=disabled or application_action_blocked,
+                    on_click=_mark_applied_and_open_applications,
+                    args=(client,),
+                    kwargs={"user_id": user_id, "job_id": job.id, "cv_version_id": cv_version_id, "job": job},
+                )
+        elif job.fit_score is None:
+            st.caption("To continue: add the full job description, rate it with your current profile, then generate a tailored CV.")
+        else:
+            st.caption("Generate a usable tailored CV before marking this listing as applied.")
     if allow_archive and can_archive_state(state):
         with columns[1]:
             with st.container(key=f"archive-action-{job.id}"):
@@ -2683,6 +2749,20 @@ def _save_and_rate(job, pasted, client, user_id, cv_version_id, profile_id, fail
             "detected_in_jd": exc.detected_in_jd,
         }
         st.rerun(scope="fragment")
+    except ManualJDReviewRequired as exc:
+        st.session_state.pop("busy_job_id", None)
+        from .manual_jd import normalize_manual_jd
+        _record_dashboard_lifecycle_override(
+            user_id, job.id,
+            description=normalize_manual_jd(pasted),
+            description_kind="full",
+            description_available=True,
+        )
+        st.session_state.pop("manual_jd_job_id", None)
+        st.session_state.pop("manual_employment_type_decision", None)
+        _refresh_listing_summary_after_action(client, user_id=user_id, job_id=job.id)
+        st.session_state["manual_jd_review_flash"] = str(exc)
+        st.rerun(scope="fragment")
     except ManualJDOperationError as exc:
         st.session_state.pop("busy_job_id", None)
         if exc.jd_saved:
@@ -2696,8 +2776,19 @@ def _save_and_rate(job, pasted, client, user_id, cv_version_id, profile_id, fail
                 }
             except (PersistenceError, ValueError):
                 pass
+            normalized_jd = normalize_manual_jd(pasted)
+            _record_dashboard_lifecycle_override(
+                user_id, job.id,
+                description=normalized_jd,
+                description_kind="full",
+                description_available=True,
+            )
+            _refresh_listing_summary_after_action(client, user_id=user_id, job_id=job.id)
             st.session_state.pop("manual_jd_job_id", None)
-            st.session_state["manual_jd_flash"] = str(exc)
+            st.session_state["manual_jd_flash"] = (
+                f"The job description was saved, but Fit could not be calculated: {exc} "
+                "You can retry rating from this card."
+            )
             st.rerun(scope="fragment")
         st.error(str(exc))
         return
@@ -2725,6 +2816,7 @@ def _save_and_rate(job, pasted, client, user_id, cv_version_id, profile_id, fail
         _expected_fit_fingerprint=job.fit_fingerprint,
         _expected_profile_id=profile_id,
         description_kind="full",
+        description_available=True,
         fit_score=int(result["fit_score"]),
         fit_assessment_id=(int(result["fit_assessment_id"]) if result.get("fit_assessment_id") else job.fit_assessment_id),
         fit_fingerprint=result.get("fit_fingerprint") or job.fit_fingerprint,
@@ -2968,14 +3060,6 @@ def _render_section_selection(label: str, jobs: list[DashboardJob]) -> None:
         on_change=_select_section_jobs,
         args=(job_ids, state_key),
     )
-    with st.expander(f"Select individual listings in {label}"):
-        for job in selectable:
-            st.checkbox(
-                f"{job.company} — {job.title}",
-                key=f"archive-select-{job.id}",
-                on_change=_sync_section_selection,
-                args=(job_ids, state_key),
-            )
 
 
 def _generate_cv(
@@ -3058,6 +3142,9 @@ def _render_cv_controls(job, client, user_id, cv_version_id, profile_id, storage
 def _poll_cv_controls(job, client, user_id, cv_version_id, profile_id, storage_bucket):
     if _collect_cv_task(user_id, job.id, storage_bucket):
         st.toast(f"CV ready: {job.company} - {job.title}")
+        # The Apply control is rendered outside this fragment. Refresh the full
+        # page so its eligibility check sees the newly persisted CV artifact.
+        st.rerun()
     _render_cv_actions(job, client, user_id, cv_version_id, profile_id, storage_bucket)
 
 
@@ -3332,6 +3419,8 @@ def render_dashboard(
 ) -> None:
     _poll_bulk_rating_task()
     _poll_bulk_archive_task(user_id)
+    if page_info is not None and page_info.pending_count:
+        _ensure_dashboard_summary_refresh(client, user_id=user_id)
     _render_dashboard_change_notice(client, user_id=user_id)
     _render_dashboard_body(
         jobs, active_profile_id, client, user_id=user_id,
@@ -3353,6 +3442,7 @@ def _check_dashboard_changes(client, user_id, cursor, profile_id, cv_id):
 @st.fragment(run_every="2s")
 def _render_dashboard_change_notice(client: SupabaseRestClient, *, user_id: str) -> None:
     """Check for changes in a worker; navigating never waits for remote reads."""
+    _poll_dashboard_summary_refresh(client, user_id=user_id)
     if _poll_preference_override_tasks(user_id):
         st.rerun(scope="app")
     checks = st.session_state.setdefault("dashboard_background_checks", {})
@@ -3398,6 +3488,56 @@ def _set_server_dashboard_page(key: str, page: int) -> None:
 
 def _set_dashboard_summary_pending_page(page: int) -> None:
     st.session_state["dashboard_summary_pending_page"] = max(1, int(page))
+
+
+def _ensure_dashboard_summary_refresh(client: SupabaseRestClient, *, user_id: str) -> None:
+    """Start one resumable in-process worker whenever the page detects stale rows."""
+    if time.monotonic() < float(st.session_state.get("dashboard_summary_retry_after", 0)):
+        return
+    key = (getattr(client, "base_url", ""), user_id)
+    with _SUMMARY_REFRESH_LOCK:
+        future = _SUMMARY_REFRESH_FUTURES.get(key)
+        if future is None or future.done():
+            from .dashboard_summary import build_dashboard_summaries
+
+            future = _SUMMARY_REFRESH_EXECUTOR.submit(
+                build_dashboard_summaries, client, user_id=user_id, max_batches=None
+            )
+            _SUMMARY_REFRESH_FUTURES[key] = future
+    st.session_state["dashboard_summary_refresh_future"] = future
+
+
+def _poll_dashboard_summary_refresh(client: SupabaseRestClient, *, user_id: str) -> None:
+    """Refresh the page after the background queue drains; retry transient errors quietly."""
+    future = st.session_state.get("dashboard_summary_refresh_future")
+    if future is None or not future.done():
+        return
+    key = (getattr(client, "base_url", ""), user_id)
+    try:
+        result = future.result()
+    except Exception:
+        logging.exception("Automatic dashboard summary refresh failed")
+        st.session_state["dashboard_summary_retry_after"] = time.monotonic() + 30
+        st.session_state.pop("dashboard_summary_refresh_future", None)
+        with _SUMMARY_REFRESH_LOCK:
+            if _SUMMARY_REFRESH_FUTURES.get(key) is future:
+                _SUMMARY_REFRESH_FUTURES.pop(key, None)
+        return
+    if result.get("remaining") or result.get("stale"):
+        st.session_state["dashboard_summary_retry_after"] = 0
+        st.session_state.pop("dashboard_summary_refresh_future", None)
+        with _SUMMARY_REFRESH_LOCK:
+            if _SUMMARY_REFRESH_FUTURES.get(key) is future:
+                _SUMMARY_REFRESH_FUTURES.pop(key, None)
+        st.rerun(scope="app")
+        return
+    with _SUMMARY_REFRESH_LOCK:
+        if _SUMMARY_REFRESH_FUTURES.get(key) is future:
+            _SUMMARY_REFRESH_FUTURES.pop(key, None)
+    st.session_state.pop("dashboard_summary_refresh_future", None)
+    st.session_state.pop("dashboard_summary_retry_after", None)
+    invalidate_supabase_read_cache()
+    st.rerun(scope="app")
 
 
 def _render_server_page_navigation(page_info, session_key: str) -> None:
@@ -3462,6 +3602,8 @@ def _render_dashboard_body(
         st.info("No active CandidateProfile is available. Jobs requiring a JD cannot be rated.")
     if flash := st.session_state.pop("manual_jd_flash", None):
         st.error(flash)
+    if flash := st.session_state.pop("manual_jd_review_flash", None):
+        st.info(flash)
     if flash := st.session_state.pop("employment_type_decision_flash", None):
         st.info(flash)
     if flash := st.session_state.pop("application_action_error", None):
@@ -3497,6 +3639,7 @@ def _render_dashboard_body(
     archive_pagination: tuple[int, int, int, int] | None = None
     if section == "Jobs":
         _initialize_dashboard_status()
+        render_latest_discovery(client, user_id=user_id, project_url=client.base_url)
         controls = st.columns([1, 2])
         with controls[0]:
             status_filter = st.selectbox(
@@ -3512,7 +3655,8 @@ def _render_dashboard_body(
             if st.session_state.get("dashboard_body_page_signature") != filter_signature:
                 st.session_state["dashboard_body_page_signature"] = filter_signature
                 st.session_state["dashboard_page"] = 1
-            query_view = "Needs attention" if status_filter == "Ready to rate" else status_filter
+            from .dashboard_summary import server_view_for_dashboard_status
+            query_view = server_view_for_dashboard_status(status_filter)
             query_score_state = "Ready to rate" if status_filter == "Ready to rate" else fit_state
             requested = {
                 **page_info.filters,
@@ -3530,27 +3674,7 @@ def _render_dashboard_body(
                 jobs = page_info.jobs
             visible = jobs
             if page_info.pending_count:
-                st.warning(f"{page_info.pending_count} listing summaries are updating. Results may be incomplete until the background builder finishes.")
-                if page_info.pending_duplicate_count:
-                    st.caption(f"{page_info.pending_duplicate_count} listings with prior application history are still being checked. Mark applied is temporarily disabled until this safety check completes.")
-                if page_info.pending_preview:
-                    with st.expander(f"Inspect updating listings · showing {len(page_info.pending_preview)} of {page_info.pending_count}"):
-                        for item in page_info.pending_preview:
-                            st.caption(f"{item.get('company') or 'Unknown company'} — {item.get('title') or 'Untitled'}")
-                        if page_info.pending_preview_pages > 1:
-                            left, center, right = st.columns([1, 2, 1])
-                            with left:
-                                st.button("← Previous", key="summary-pending-previous",
-                                          disabled=page_info.pending_preview_page <= 1,
-                                          on_click=_set_dashboard_summary_pending_page,
-                                          args=(page_info.pending_preview_page - 1,))
-                            with center:
-                                st.caption(f"Page {page_info.pending_preview_page} of {page_info.pending_preview_pages}")
-                            with right:
-                                st.button("Next →", key="summary-pending-next",
-                                          disabled=page_info.pending_preview_page >= page_info.pending_preview_pages,
-                                          on_click=_set_dashboard_summary_pending_page,
-                                          args=(page_info.pending_preview_page + 1,))
+                st.caption("Updating listings in the background…")
             _render_server_page_navigation(page_info, "dashboard_page")
         else:
             local_view = status_filter
@@ -3637,6 +3761,11 @@ def _render_dashboard_body(
         st.caption(f"{len(grouped_jobs)} position{'' if len(grouped_jobs) == 1 else 's'}")
         if section == "Jobs":
             _render_section_selection(label, grouped_jobs)
+        selection_job_ids = [
+            job.id for job in grouped_jobs
+            if can_select_job(job) and not _job_operation_busy(job.id)
+        ]
+        selection_state_key = f"select-all-{label}"
         columns = st.columns(min(3, len(grouped_jobs)))
         for index, job in enumerate(grouped_jobs):
             with columns[index % len(columns)]:
@@ -3647,6 +3776,8 @@ def _render_dashboard_body(
                     application_action_blocked=bool(
                         page_info is not None and page_info.pending_duplicate_count
                     ),
+                    selection_job_ids=selection_job_ids,
+                    selection_state_key=selection_state_key if section == "Jobs" else None,
                 )
     if archive_pagination:
         page, page_count, _, total = archive_pagination
@@ -3685,6 +3816,8 @@ def render_applications(
     page_info=None,
 ) -> None:
     st.title("Applications")
+    if page_info is not None and page_info.pending_count:
+        _ensure_dashboard_summary_refresh(client, user_id=user_id)
     _render_dashboard_change_notice(client, user_id=user_id)
     _post_it_styles()
     selected_interview_job = st.session_state.get("interview_prep_job_id")
@@ -3732,7 +3865,7 @@ def render_applications(
             jobs = page_info.jobs
         visible = jobs
         if page_info.pending_count:
-            st.warning(f"{page_info.pending_count} listing summaries are updating. Application results may be incomplete until the background builder finishes.")
+            st.caption("Updating listings in the background…")
         _render_server_page_navigation(page_info, "applications_page")
     else:
         application_jobs = application_view_jobs(jobs)

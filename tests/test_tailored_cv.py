@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
+from tests.latex_sandbox_support import bubblewrap_namespace_unavailable_reason
 
 from matching.candidate_profile import representative_profile
 from matching.holistic_matcher import DEFAULT_MODEL, VerifiedJob, candidate_projection_sha256
@@ -269,6 +270,13 @@ def test_reserved_character_sanitizer_preserves_macro_definitions_and_verb():
     assert syntax in sanitize_latex_source(source)
 
 
+_BWRAP_NAMESPACE_REASON = bubblewrap_namespace_unavailable_reason()
+
+
+@pytest.mark.skipif(
+    _BWRAP_NAMESPACE_REASON is not None,
+    reason=_BWRAP_NAMESPACE_REASON or "bubblewrap namespaces unavailable",
+)
 def test_squads_luna_ampersand_regression_compiles_after_sanitization():
     source = BASE.replace(
         "\\end{document}",

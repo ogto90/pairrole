@@ -183,6 +183,23 @@ def test_full_description_detection_uses_content_not_declared_kind_or_character_
     assert classify_job_description(flattened, "missing") == "full"
 
 
+def test_short_narrative_job_posting_is_accepted_as_full_description():
+    from matching.job_description import classify_job_description
+
+    description = (
+        "As a Cybersecurity Engineer, you bring deep expertise in incident response, detection engineering and "
+        "forensics across Windows/Linux/cloud environments/network. You hold certifications like Certified Incident "
+        "Handler, Certified Forensic Analyst, and Certified Cloud Forensics Responder and you are skilled in software "
+        "development. You excel at building production-grade detection systems that catch sophisticated threats across "
+        "hybrid infrastructure and turn forensic insights into real-time defenses.\n\n"
+        "You will be one of Haste's first detection engineers pioneering lightning-fast threat analysis for HPC clusters, "
+        "AI and quantum workloads."
+    )
+
+    assert len(description) > 200
+    assert classify_job_description(description, "full") == "full"
+
+
 def test_work_model_and_language_are_informational_not_eligibility_gates():
     remote_europe = profile(work_models=["remote"], allowed_regions=["Europe"])
     good = assess_discovered_job(title="Security Engineer", location="Remote Europe", remote_scope="Full Remote", description="English required. " + "Build products with the team. " * 10, profile=remote_europe)

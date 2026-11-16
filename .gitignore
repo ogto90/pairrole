@@ -140,3 +140,10 @@ company_research/*.json
 # Personal CV inputs and variants; retain only the explicit public example
 /cv/**
 !/cv/main_example.tex
+
+# Private on-premises deployment, credentials, snapshots and logs
+/.local-supabase/
+
+# Personal exports from dashboard review
+/rated_listing_urls_*.csv
+/rejected_positions_*.csv

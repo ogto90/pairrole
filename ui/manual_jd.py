@@ -7,6 +7,7 @@ import re
 import hashlib
 from typing import Any
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 
 from openai import OpenAI
 from pydantic import ValidationError
@@ -56,6 +57,13 @@ class ManualJDOperationError(RuntimeError):
     def __init__(self, message: str, *, jd_saved: bool):
         super().__init__(message)
         self.jd_saved = jd_saved
+
+
+class ManualJDReviewRequired(ManualJDOperationError):
+    """The JD was saved, but a user preference decision is needed before Fit."""
+
+    def __init__(self, message: str):
+        super().__init__(message, jd_saved=True)
 
 
 class ManualEmploymentTypeDecisionRequired(ManualJDOperationError):
@@ -158,6 +166,31 @@ def _job_row(client: SupabaseRestClient, job_id: int) -> dict[str, Any]:
     return rows[0]
 
 
+def _save_job_description(client: SupabaseRestClient, *, job_id: int, row: dict[str, Any], text: str) -> None:
+    if row.get("description") == text and row.get("description_kind") == "full":
+        return
+    try:
+        saved = client.json_request(
+            "PATCH",
+            f"/rest/v1/jobs?id=eq.{job_id}&select=id,description_kind",
+            {"description": text, "description_kind": "full"},
+            prefer="return=representation",
+        )
+    except Exception as exc:
+        raise ManualJDOperationError(f"Could not save the job description: {exc}", jd_saved=False) from exc
+    if (
+        not isinstance(saved, list)
+        or len(saved) != 1
+        or str(saved[0].get("id")) != str(job_id)
+        or saved[0].get("description_kind") != "full"
+    ):
+        raise ManualJDOperationError(
+            "Supabase did not confirm saving this job description. The update matched no row; "
+            "check the listing's update permissions (including its row-level security policy).",
+            jd_saved=False,
+        )
+
+
 def rate_job_with_manual_jd(
     client: SupabaseRestClient,
     *,
@@ -233,13 +266,26 @@ def rate_job_with_manual_jd(
         )
         if not isinstance(profiles, list) or len(profiles) != 1:
             raise ManualJDOperationError("The active SearchProfile could not be resolved; no Fit call was made.", jd_saved=False)
-        try:
-            location_rows = client.get_json("/rest/v1/user_job_location_verifications?" + urlencode({
+        location_path = "/rest/v1/user_job_location_verifications?" + urlencode({
                 "select": "user_id,job_id,location_status",
                 "user_id": f"eq.{user_id}", "job_id": f"eq.{job_id}", "limit": "2",
-            }))
-        except PersistenceError as exc:
-            raise ManualJDOperationError("Could not load the saved location approval; no Fit call was made.", jd_saved=False) from exc
+            })
+        for attempt in range(2):
+            try:
+                location_rows = client.get_json(location_path)
+                break
+            except PersistenceError as exc:
+                cause = exc.__cause__
+                transient = (
+                    isinstance(cause, HTTPError) and cause.code in {429, 502, 503, 504}
+                ) or (isinstance(cause, URLError) and not isinstance(cause, HTTPError))
+                if transient and attempt == 0:
+                    continue
+                raise ManualJDOperationError(
+                    "Could not load the saved location approval. "
+                    "Please retry saving and rating the job; your pasted text has not been saved "
+                    "and no Fit call was made.", jd_saved=False,
+                ) from exc
         if not isinstance(location_rows, list) or len(location_rows) > 1 or any(
             not isinstance(item, dict) or item.get("user_id") != user_id
             or item.get("job_id") != job_id
@@ -281,6 +327,20 @@ def rate_job_with_manual_jd(
             verified_location_status=location_rows[0]["location_status"] if location_rows else None,
             preference_overrides=preference_overrides,
         )
+        if (
+            not eligibility.actionable
+            and "location" not in preference_overrides
+            and eligibility.location == "unclear"
+            and eligibility.role in {"target_match", "target_adjacent"}
+            and eligibility.employment_type == "eligible"
+            and eligibility.seniority == "eligible"
+        ):
+            _save_job_description(client, job_id=job_id, row=row, text=text)
+            raise ManualJDReviewRequired(
+                "The job description was saved, but Fit was not run because the location still needs your review. "
+                "Use Accept for this listing to approve a one-listing location exception, then choose Rate job. "
+                "Your saved global preferences will not change."
+            )
         if eligibility.employment_type == "ineligible":
             detected = detected_employment_types(row.get("employment_type"), text)
             definition = profiles[0].get("definition", {})
@@ -349,9 +409,11 @@ def rate_job_with_manual_jd(
                     preference_overrides=preference_overrides,
                 )
                 if not eligibility.actionable:
+                    _save_job_description(client, job_id=job_id, row=row, text=text)
                     raise ManualJDOperationError(
-                        f"This discovered listing is not eligible for Fit: {eligibility.reason}. No JD or assessment was saved.",
-                        jd_saved=False,
+                        f"This discovered listing is not eligible for Fit: {eligibility.reason}. "
+                        "The JD was saved for review; no Fit assessment was created.",
+                        jd_saved=True,
                     )
                 if employment_type_decision is not None:
                     save_employment_type_decision(
@@ -359,20 +421,13 @@ def rate_job_with_manual_jd(
                         decision="accepted", jd_sha256=digest,
                     )
         if not eligibility.actionable:
+            _save_job_description(client, job_id=job_id, row=row, text=text)
             raise ManualJDOperationError(
-                f"This discovered listing is not eligible for Fit: {eligibility.reason}. No JD or assessment was saved.",
-                jd_saved=False,
+                f"This discovered listing is not eligible for Fit: {eligibility.reason}. "
+                "The JD was saved for review; no Fit assessment was created.",
+                jd_saved=True,
             )
-    if row.get("description") != text or row.get("description_kind") != "full":
-        try:
-            client.json_request(
-                "PATCH",
-                f"/rest/v1/jobs?id=eq.{job_id}",
-                {"description": text, "description_kind": "full"},
-                prefer="return=minimal",
-            )
-        except Exception as exc:
-            raise ManualJDOperationError(f"Could not save the job description: {exc}", jd_saved=False) from exc
+    _save_job_description(client, job_id=job_id, row=row, text=text)
 
     try:
         profile = _active_profile(

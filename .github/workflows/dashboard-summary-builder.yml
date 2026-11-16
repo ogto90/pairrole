@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' && vars.DASHBOARD_SUMMARY_WORKER_ENABLED == 'true'
+    # Hosted recovery remains manual; local deployments use the systemd worker.
+    if: github.ref == 'refs/heads/main' && vars.PAIRROLE_BACKEND != 'local'
     runs-on: ubuntu-latest
     environment: "Job search"
     timeout-minutes: 25
@@ -30,7 +31,7 @@ jobs:
       - name: Install dashboard builder dependencies
         run: python -m pip install --require-hashes -r requirements-lock.txt
 
-      - name: Build the next bounded summary batches
+      - name: Build pending summary batches
         env:
           DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           AI_JOB_SEARCH_USER_ID: ${{ secrets.AI_JOB_SEARCH_USER_ID }}
@@ -44,6 +45,5 @@ jobs:
             --supabase-url "$SUPABASE_URL" \
             --expected-project-ref "${{ vars.SUPABASE_PROJECT_REF }}" \
             --user-id "$AI_JOB_SEARCH_USER_ID" \
-            --max-batches 20 \
             --retries 3 \
             --allow-production

@@ -22,8 +22,9 @@ _SECTION_HEADING = re.compile(
     re.I,
 )
 _ACTION_TERMS = re.compile(
-    r"\b(build|design|develop|drive|implement|lead|manage|own|partner|protect|review|"
-    r"secure|support|operate|assess|respond|establish|deliver|maintain|create|collaborate)\b",
+    r"\b(build\w*|design\w*|develop\w*|drive\w*|implement\w*|lead\w*|manage\w*|own\w*|partner\w*|protect\w*|review\w*|"
+    r"secure\w*|support\w*|operate\w*|assess\w*|respond\w*|establish\w*|deliver\w*|maintain\w*|create\w*|collaborate\w*|"
+    r"catch\w*|detect\w*|investigat\w*|analy[sz]\w*|turn\w*)\b",
     re.I,
 )
 
@@ -54,7 +55,12 @@ def is_usable_full_job_description(value: str | None) -> bool:
         return False
     headings = len(_SECTION_HEADING.findall(text))
     actions = len(_ACTION_TERMS.findall(text))
-    return len(words) >= 100 or (len(words) >= 40 and headings >= 1 and actions >= 3)
+    # Some genuine postings are short narrative descriptions without section
+    # headings. Accept those when they still have substantial, varied content
+    # and describe at least one concrete action; repeated promotional teasers
+    # remain snippets because their unique-word ratio is low.
+    concise_narrative = len(words) >= 70 and unique_ratio >= 0.55 and actions >= 1
+    return len(words) >= 100 or (len(words) >= 40 and headings >= 1 and actions >= 3) or concise_narrative
 
 
 def classify_job_description(value: str | None, declared_kind: str | None = None) -> str:

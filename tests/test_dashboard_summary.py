@@ -18,6 +18,7 @@ from ui.dashboard_summary import (
     compact_job_summary,
     fetch_dashboard_page,
     normalize_dashboard_identity,
+    server_view_for_dashboard_status,
     summary_input_fingerprint,
     validate_supabase_target,
 )
@@ -215,6 +216,26 @@ def test_page_rpc_is_bounded_and_stable_for_a_large_mock_dataset():
     assert all(page.pending_duplicate_count == 1 for page in pages)
     assert pages[0].jobs[0].tailored_cv_id == 456
     assert all(call[2]["p_search"] == "sec" for call in client.calls)
+
+
+def test_ready_to_rate_uses_unaddressed_parent_view():
+    assert server_view_for_dashboard_status("Ready to rate") == "Unaddressed"
+    assert server_view_for_dashboard_status("Needs attention") == "Needs attention"
+
+
+def test_ready_filter_migration_treats_missing_failed_fingerprint_as_not_failed():
+    from pathlib import Path
+
+    migration = Path(
+        "supabase/migrations/20261105101602_fix_dashboard_ready_filter.sql"
+    ).read_text()
+    assert migration.count("public.dashboard_job_attention_page(") == 1
+    assert migration.count("public.dashboard_job_page(") == 1
+    assert (
+        "coalesce((p_failed_fingerprints->>s.job_id::text = "
+        "s.summary->>''fit_fingerprint''), false) as rating_failed"
+    ) in migration
+    assert "RAISE EXCEPTION" in migration
 
 
 def test_rpc_preserves_single_row_table_result_shape():
@@ -466,7 +487,50 @@ def test_summary_recovery_workflow_is_manual_and_independent():
     assert "  workflow_dispatch:" in recovery
     assert "  schedule:" not in recovery
     assert "  workflow_run:" not in recovery
-    assert "--max-batches 20" in recovery
+    assert "if: github.ref == 'refs/heads/main'" in recovery
+    assert "DASHBOARD_SUMMARY_WORKER_ENABLED" not in recovery
+    assert "--max-batches" not in recovery
+    assert "--max-batches" not in discovery
+
+
+def test_profile_changes_do_not_rebuild_already_handled_summary_rows():
+    from pathlib import Path
+
+    migration = Path(
+        "supabase/migrations/20261106110502_preserve_handled_summaries_on_profile_change.sql"
+    ).read_text()
+    assert "dashboard_summary_profile_refresh_needed" in migration
+    assert "'applied','interview','offer','hired','rejected','withdrawn','no_response'" in migration
+    assert "'rated','ignored','archived'" in migration
+    assert "fit_score is not null" in migration
+    assert migration.count("stale_replacement") == 2
+    assert migration.count("current_replacement") == 2
+
+
+def test_summary_recovery_starts_without_a_batch_cap(monkeypatch):
+    import ui.dashboard as dashboard
+
+    submitted = {}
+
+    class Future:
+        def done(self):
+            return False
+
+    class Executor:
+        def submit(self, function, client, **kwargs):
+            submitted.update(function=function, client=client, kwargs=kwargs)
+            return Future()
+
+    monkeypatch.setattr(dashboard, "st", type("Streamlit", (), {"session_state": {}})())
+    monkeypatch.setattr(dashboard, "_SUMMARY_REFRESH_EXECUTOR", Executor())
+    dashboard._SUMMARY_REFRESH_FUTURES.clear()
+    client = type("Client", (), {"base_url": "https://example.supabase.co"})()
+
+    dashboard._ensure_dashboard_summary_refresh(client, user_id="user-1")
+
+    assert submitted["function"].__name__ == "build_dashboard_summaries"
+    assert submitted["kwargs"] == {"user_id": "user-1", "max_batches": None}
+    assert dashboard.st.session_state["dashboard_summary_refresh_future"].done() is False
 
 
 def test_needs_attention_sql_filter_is_server_side_and_keeps_rpc_security():
@@ -551,15 +615,78 @@ def test_stale_handled_rows_only_block_apply_and_duplicate_decisions(monkeypatch
         button=lambda _label, **kwargs: buttons.update({kwargs["key"]: kwargs.get("disabled", False)}) or False,
         columns=lambda _spec: [Column(), Column()],
         container=lambda **_kwargs: Column(),
+        caption=lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(dashboard, "st", fake_st)
     dashboard._render_lifecycle_actions(
         _job(42), object(), user_id="user-1", cv_version_id=3, active_profile_id=7,
         failed_fingerprints={}, disabled=False, application_action_blocked=True,
     )
-    assert buttons["applied-42"] is True
+    assert "applied-42" not in buttons
     assert buttons["archive-42"] is False
     assert buttons["rate-42"] is False
+
+
+def test_ready_summary_card_shows_rating_action_and_disables_apply(monkeypatch):
+    import ui.dashboard as dashboard
+    from types import SimpleNamespace
+
+    class Column:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+
+    buttons = {}
+    fake_st = SimpleNamespace(
+        session_state={},
+        button=lambda _label, **kwargs: buttons.update({kwargs["key"]: kwargs.get("disabled", False)}) or False,
+        columns=lambda _spec: [Column(), Column()],
+        container=lambda **_kwargs: Column(),
+        caption=lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(dashboard, "st", fake_st)
+    compact_ready_job = replace(
+        _job(42), description=None, description_kind="full", description_available=True,
+    )
+
+    dashboard._render_lifecycle_actions(
+        compact_ready_job, object(), user_id="user-1", cv_version_id=3,
+        active_profile_id=7, failed_fingerprints={}, disabled=False,
+    )
+
+    assert "rate-42" in buttons and buttons["rate-42"] is False
+    assert "applied-42" not in buttons
+
+
+def test_historical_rating_can_be_replaced_and_apply_is_hidden_until_cv_exists(monkeypatch):
+    import ui.dashboard as dashboard
+    from types import SimpleNamespace
+
+    class Column:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+
+    buttons = {}
+    fake_st = SimpleNamespace(
+        session_state={},
+        button=lambda _label, **kwargs: buttons.update({kwargs["key"]: kwargs.get("disabled", False)}) or False,
+        columns=lambda _spec: [Column(), Column()],
+        container=lambda **_kwargs: Column(),
+        caption=lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(dashboard, "st", fake_st)
+    historical = _job(
+        43, historical_fit_score=44, previous_profile_rating=True,
+        description="Full JD", description_kind="full", fit_score=None,
+        fit_assessment_id=None,
+    )
+
+    dashboard._render_lifecycle_actions(
+        historical, object(), user_id="user-1", cv_version_id=3,
+        active_profile_id=7, failed_fingerprints={}, disabled=False,
+    )
+
+    assert buttons["rate-current-43"] is False
+    assert "applied-43" not in buttons
 
 
 def test_bounded_dashboard_activation_defaults_to_compact_pages():

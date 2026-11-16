@@ -11,9 +11,15 @@ from matching.candidate_profile_persistence import PersistenceError
 from matching.latex_sandbox import sandbox_command
 from matching.tailored_cv import TailoredCVError, compile_latex, generate_or_reuse_tailored_cv
 from tests.test_tailored_cv import FakeTailoredAI, FakeTailoredClient, JOB
+from tests.latex_sandbox_support import bubblewrap_namespace_unavailable_reason
 
 ROOT = Path(__file__).resolve().parents[1]
 DAILY_REPORT_COMPILER = ROOT / "tools" / "compile_latex_sandbox.py"
+_BWRAP_NAMESPACE_REASON = bubblewrap_namespace_unavailable_reason()
+requires_bubblewrap_namespaces = pytest.mark.skipif(
+    _BWRAP_NAMESPACE_REASON is not None,
+    reason=_BWRAP_NAMESPACE_REASON or "bubblewrap namespaces unavailable",
+)
 
 
 def test_compiler_environment_and_command_are_restricted(tmp_path, monkeypatch):
@@ -59,6 +65,7 @@ def test_sandbox_launch_failure_never_retries_unsandboxed(monkeypatch):
     assert calls[0][0].endswith("bwrap")
 
 
+@requires_bubblewrap_namespaces
 def test_real_sandbox_hides_environment_files_and_network(tmp_path, monkeypatch):
     secret = tmp_path / "host-secret.txt"
     secret.write_text("dummy-only")
@@ -78,6 +85,7 @@ Sandbox test.
     assert secret.read_text() == "dummy-only"
 
 
+@requires_bubblewrap_namespaces
 def test_daily_report_helper_compiles_trusted_cv(tmp_path):
     output = tmp_path / "trusted.pdf"
     result = subprocess.run(
@@ -88,6 +96,7 @@ def test_daily_report_helper_compiles_trusted_cv(tmp_path):
     assert output.read_bytes().startswith(b"%PDF-")
 
 
+@requires_bubblewrap_namespaces
 def test_daily_report_helper_contains_hostile_latex(tmp_path):
     secret = tmp_path / "host-secret.txt"
     secret.write_text("synthetic-only")
