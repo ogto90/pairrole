@@ -1,4 +1,4 @@
-"""Validate the narrow Semgrep override and patched trace-header parsing."""
+"""Validate Semgrep dependency overrides and patched trace-header parsing."""
 from importlib.metadata import distributions, version
 from pathlib import Path
 import subprocess
@@ -18,7 +18,7 @@ def check_dependencies():
         for req in [Requirement(line)]
     }
     if version('semgrep') != '1.185.0':
-        raise RuntimeError('Revalidate or remove telemetry overrides before changing Semgrep.')
+        raise RuntimeError('Revalidate or remove dependency overrides before changing Semgrep.')
     for name, override in overrides.items():
         if not override.specifier.contains(version(name), prereleases=True):
             raise RuntimeError(f'Unexpected override version: {name}')

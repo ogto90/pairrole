@@ -1,4 +1,4 @@
-# Temporary compatibility override for Semgrep 1.185.0's telemetry pins.
+# Temporary compatibility overrides for Semgrep 1.185.0's vulnerable pins.
 # Keep the API/SDK/exporter and instrumentation families aligned.
 # Fixes CVE-2026-114603 and CVE-2026-126360; validated by scanner canaries.
 opentelemetry-api==1.45.2
@@ -6,3 +6,9 @@ opentelemetry-sdk==1.45.2
 opentelemetry-exporter-otlp-proto-http==1.45.2
 opentelemetry-instrumentation-requests==0.66b2
 opentelemetry-instrumentation-threading==0.66b2
+
+# MCP 1.30.0 fixes Dependabot alerts #1, #3, #4, #5 and #7.
+mcp==1.30.0
+
+# wcmatch 11.2 fixes multi-star pattern ReDoS (Dependabot #8).
+wcmatch==11.2
