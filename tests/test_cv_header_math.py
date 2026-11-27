@@ -64,3 +64,19 @@ def test_failure_preserves_exact_source_and_explicit_diagnostics(tmp_path, monke
     assert "dummy-do-not-save" not in (directory / "error.json").read_text()
     assert (directory.stat().st_mode & 0o777) == 0o700
     assert ((directory / "source.tex").stat().st_mode & 0o777) == 0o600
+
+
+@pytest.mark.parametrize("spacing", ["4pt", "-2mm", " .5em ", "+1.5ex"])
+def test_header_spacing_with_missing_slash_is_repaired(spacing):
+    source = (r"\documentclass{article}\begin{document}\begin{center}"
+              + r"{Security Engineer}\[" + spacing + "]\n"
+              + r"Contact details\end{center}\end{document}")
+    result = tailoring.sanitize_latex_source(source)
+    assert r"{Security Engineer}\\[" + spacing + "]" in result
+    assert tailoring.sanitize_latex_source(result) == result
+
+
+def test_display_math_and_existing_spacing_are_preserved():
+    source = (r"\begin{document}Text\\[4pt]Next line"
+              + r"\[x^2 + y^2 = z^2\]\end{document}")
+    assert tailoring.sanitize_latex_source(source) == source

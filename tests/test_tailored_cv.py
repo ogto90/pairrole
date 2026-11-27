@@ -556,3 +556,46 @@ def test_expired_matching_artifact_is_not_reused_or_overwritten(monkeypatch):
     assert ai.calls == 1
     assert client.rows[0] == expired
     assert client.rows[1]["tailoring_fingerprint"] != current_fingerprint
+
+
+@pytest.mark.parametrize("status,code,expected", [
+    (503, "server_is_overloaded", "overloaded (HTTP 503)"),
+    (429, "rate_limit_exceeded", "rate limit"),
+    (429, "insufficient_quota", "insufficient API quota"),
+    (401, "invalid_api_key", "authentication failed"),
+    (403, None, "access was denied"),
+    (404, None, "model or endpoint was not found"),
+    (500, None, "server error"),
+    (400, None, "rejected the tailoring request"),
+])
+def test_tailoring_provider_errors_are_actionable_and_redacted(status, code, expected):
+    import httpx2 as httpx  # openai>=3 builds on httpx2, not httpx
+    from openai import APIStatusError
+
+    secret = "PRIVATE_CV_AND_API_KEY_MUST_NOT_APPEAR"
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    failure = APIStatusError(secret, response=httpx.Response(status, request=request),
+                             body={"code": code, "message": secret})
+
+    def fail(**kwargs):
+        raise failure
+
+    ai = SimpleNamespace(responses=SimpleNamespace(parse=fail))
+    tailoring_input = build_tailoring_input(
+        base_cv_text=BASE, candidate_profile=representative_profile(), job=JOB,
+    )
+    with pytest.raises(TailoredCVError) as error:
+        generate_tailored_latex(tailoring_input=tailoring_input, client=ai)
+    assert expected in str(error.value)
+    assert secret not in str(error.value)
+
+
+def test_tailoring_transport_and_unknown_errors_are_redacted():
+    import httpx2 as httpx  # openai>=3 builds on httpx2, not httpx
+    from openai import APIConnectionError, APITimeoutError
+    from matching.tailored_cv import tailoring_request_error
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    assert "timed out" in tailoring_request_error(APITimeoutError(request=request))
+    assert "connect" in tailoring_request_error(APIConnectionError(request=request))
+    assert "PRIVATE" not in tailoring_request_error(ValueError("PRIVATE"))

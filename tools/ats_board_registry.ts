@@ -238,7 +238,9 @@ export class SupabaseAtsBoardRepository implements AtsBoardRepository {
 
   constructor(baseUrl: string, secretKey: string, fetchImpl: typeof fetch = fetch) {
     const parsed = new URL(baseUrl)
-    if (parsed.protocol !== "https:") throw new Error("Supabase ATS registry URL must use HTTPS")
+    const localDeployment = parsed.origin === "http://127.0.0.1:55321"
+      && parsed.pathname === "/" && !parsed.search && !parsed.hash
+    if (parsed.protocol !== "https:" && !localDeployment) throw new Error("Supabase ATS registry URL must use HTTPS or the local PairRole endpoint")
     if (parsed.username || parsed.password) throw new Error("Supabase ATS registry URL must not embed credentials")
     this.baseUrl = parsed.toString().replace(/\/+$/, "")
     this.secretKey = secretKey
@@ -248,6 +250,7 @@ export class SupabaseAtsBoardRepository implements AtsBoardRepository {
   private async request(path: string, init: RequestInit = {}): Promise<unknown> {
     const response = await this.fetchImpl(`${this.baseUrl}/rest/v1/${path}`, {
       ...init,
+      redirect: "error",
       headers: {
         apikey: this.secretKey,
         Authorization: `Bearer ${this.secretKey}`,

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from matching.discovery_runtime import bun_command as _bun_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,16 +60,6 @@ def read_discovery_status(path: Path = STATUS_FILE) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _bun_command() -> str:
-    configured = shutil.which("bun")
-    if configured:
-        return configured
-    fallback = ROOT / ".agents" / "skills" / "jobnet-search" / "cli" / "node_modules" / ".bin" / "bun"
-    if fallback.exists():
-        return str(fallback)
-    raise RuntimeError("Bun is required to run the discovery pipeline.")
-
-
 def start_discovery(*, user_id: str, limit: int | None = None) -> dict[str, Any]:
     """Start one combined discovery pass in a detached process."""
     if not user_id.strip():
@@ -77,6 +67,8 @@ def start_discovery(*, user_id: str, limit: int | None = None) -> dict[str, Any]
     current = read_discovery_status(STATUS_FILE)
     if current and current.get("status") == "running":
         return current
+
+    bun = _bun_command()  # Fail before claiming that a background search started.
 
     run_id = uuid4().hex
     status = {
@@ -94,13 +86,16 @@ def start_discovery(*, user_id: str, limit: int | None = None) -> dict[str, Any]
     if limit is not None:
         command.extend(["--limit", str(limit)])
     environment = os.environ.copy()
-    subprocess.Popen(
-        command,
-        cwd=ROOT,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    environment['PATH'] = str(Path(bun).parent) + os.pathsep + environment.get('PATH', '')
+    try:
+        subprocess.Popen(
+            command, cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        status.update(status='failed', stage='starting', finished_at=_now(),
+                      error='Could not launch discovery. Check the local Python environment.')
+        _write_json(STATUS_FILE, status)
+        raise RuntimeError(status['error']) from None
     return status

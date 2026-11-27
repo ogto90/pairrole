@@ -167,7 +167,11 @@ def render_settings(
         status = read_discovery_status()
         running = bool(status and status.get("status") == "running")
         if st.button("Search for new positions", type="primary", disabled=running):
-            start_discovery(user_id=user_id)
+            try:
+                start_discovery(user_id=user_id)
+            except (RuntimeError, OSError) as exc:
+                st.error(str(exc))
+                return
             st.success("Combined search started in the background.")
             st.rerun(scope="fragment")
         if running:
