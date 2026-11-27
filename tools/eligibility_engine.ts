@@ -170,6 +170,13 @@ for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
   if (name && name !== code && name !== "Unknown Region" && !["EU", "EZ", "UN", "QO"].includes(code)) KNOWN_COUNTRY_CODES.add(code)
 }
 
+// Built once: compiling ~250 name patterns on every countriesInText call was
+// ~90% of discovery's enrichment CPU time (about 10ms per job).
+const NAMED_COUNTRY_PATTERNS: Array<[string, RegExp]> = [...KNOWN_COUNTRY_CODES].flatMap((code) => {
+  const name = REGION_NAMES.of(code)
+  return name ? [[code, new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")] as [string, RegExp]] : []
+})
+
 const COUNTRY_ALIASES: Array<[string, string, RegExp]> = [
   ["AT", "Austria", /\b(austria|vienna)\b/i],
   ["DE", "Germany", /\b(germany|deutschland|berlin|munich)\b/i],
@@ -221,11 +228,7 @@ function normalizeCountry(raw: string): string | null {
 
 function countriesInText(text: string): string[] {
   const codeMatches = [...text.matchAll(/\b[A-Z]{2}\b/g)].map((match) => match[0]).filter((code) => KNOWN_COUNTRY_CODES.has(code))
-  const names = REGION_NAMES
-  const namedCountries = [...KNOWN_COUNTRY_CODES].filter((code) => {
-    const name = names.of(code)
-    return name && new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)
-  })
+  const namedCountries = NAMED_COUNTRY_PATTERNS.filter(([, pattern]) => pattern.test(text)).map(([code]) => code)
   return unique([...codeMatches, ...namedCountries, ...COUNTRY_ALIASES.filter(([, , pattern]) => pattern.test(text)).map(([code]) => code)])
 }
 
