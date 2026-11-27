@@ -87,14 +87,15 @@
       "expected": {"role": "target_match", "location": "ineligible", "language": "eligible", "employment_type": "eligible", "seniority": "eligible", "actionable": false}
     },
     {
-      "name": "German required is ineligible when English is accepted only",
+      "name": "German required: dashboard leaves language to user review, scheduled path rejects it",
       "profile": "software",
       "title": "Senior Software Engineer",
       "location": "Europe",
       "remote_scope": "Remote Europe",
       "employment_type": "Full Time",
       "description": "German is required. English is also used by the team. This is a full-time remote role open across Europe. ",
-      "expected": {"role": "target_match", "location": "eligible", "language": "eligible", "employment_type": "eligible", "seniority": "eligible", "actionable": true}
+      "expected": {"role": "target_match", "location": "eligible", "language": "eligible", "employment_type": "eligible", "seniority": "eligible", "actionable": true},
+      "expected_scheduled": {"language": "ineligible", "actionable": false}
     },
     {
       "name": "contract is ineligible when full-time is accepted only",

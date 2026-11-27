@@ -19,7 +19,9 @@ describe("discovery correctness", () => {
   for (const input of fixture.geographies) {
     test(`geography: ${JSON.stringify(input)}`, () => {
       const job = normalizeDiscoveredJob({ id: "test", source: "test", title: "Security Engineer", company: "Example", url: "https://example.test/jobs/1", ...input, remoteScope: input.remote_scope }, "test")!
-      expect(classifyLocationEligibility(job, profile)).toBe(input.expected)
+      // `expected_scheduled` records a deliberate scheduled-path difference
+      // (see scheduled_note in the fixture); the dashboard uses `expected`.
+      expect(classifyLocationEligibility(job, profile)).toBe(input.expected_scheduled ?? input.expected)
     })
   }
   for (const input of run12) {

@@ -1,0 +1,4 @@
+[test]
+# Strip credentials Bun auto-loads from .env so tests never depend on, or
+# reach, the developer's real services.
+preload = ["./tests/bun_test_env.ts"]
