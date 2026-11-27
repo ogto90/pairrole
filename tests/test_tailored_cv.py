@@ -569,7 +569,7 @@ def test_expired_matching_artifact_is_not_reused_or_overwritten(monkeypatch):
     (400, None, "rejected the tailoring request"),
 ])
 def test_tailoring_provider_errors_are_actionable_and_redacted(status, code, expected):
-    import httpx
+    import httpx2 as httpx  # openai>=3 builds on httpx2, not httpx
     from openai import APIStatusError
 
     secret = "PRIVATE_CV_AND_API_KEY_MUST_NOT_APPEAR"
@@ -591,7 +591,7 @@ def test_tailoring_provider_errors_are_actionable_and_redacted(status, code, exp
 
 
 def test_tailoring_transport_and_unknown_errors_are_redacted():
-    import httpx
+    import httpx2 as httpx  # openai>=3 builds on httpx2, not httpx
     from openai import APIConnectionError, APITimeoutError
     from matching.tailored_cv import tailoring_request_error
 
