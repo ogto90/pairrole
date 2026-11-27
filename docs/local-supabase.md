@@ -126,3 +126,27 @@ The public repository keeps hosted discovery and summary workflows manual.
 On a local deployment, set repository variable `PAIRROLE_BACKEND=local` to block
 those writers and use the local timers instead. Migration scripts do not apply
 pending migrations automatically; review the migration history before deployment.
+
+
+## Discovery monitoring and desktop launches
+
+The active local checkout is `/home/ot/Desktop/pairrole`. The previous
+`ai-job-search-master` path remains a compatibility symlink for existing Docker
+bind mounts and Python virtual environments. Local service units use the new path.
+
+The Jobs page checks the discovery timer and persisted run history every minute.
+It warns when the timer is inactive, a scheduled run is missing, a search failed,
+or a run has remained in progress for over three hours. A recent manual search
+does not conceal a missed scheduled search.
+
+Local discovery runs at 10:07 and 18:07 Europe/Vienna. Check or restart it with:
+
+```bash
+systemctl --user status pairrole-discovery.timer
+systemctl --user enable --now pairrole-discovery.timer pairrole-summaries.timer
+```
+
+Settings uses the installed Bun runtime even when the desktop launcher has a
+minimal PATH. The ATS registry permits the exact local API origin
+`http://127.0.0.1:55321`; remote endpoints still require HTTPS, and credentialed
+registry requests never follow redirects.

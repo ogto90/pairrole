@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from openai import OpenAI
+from openai import OpenAI, APIStatusError, APIConnectionError, APITimeoutError
 from pydantic import BaseModel, ConfigDict, Field
 
 from .candidate_profile import CandidateProfile
@@ -390,6 +390,18 @@ def _escape_latex_region(source: str) -> str:
 
             # Escaped characters and control symbols (including \\&, \\%,
             # \\#, and \\_) are already valid LaTeX and must remain unchanged.
+            # A generated line break may lose one slash: \[4pt] opens
+            # display math instead of adding vertical spacing. Repair only a
+            # complete bracketed TeX dimension, leaving genuine math untouched.
+            if next_char == "[":
+                spacing = re.match(
+                    r"\\\[\s*[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:pt|mm|cm|em|ex|in|bp|pc|dd|cc|sp)\s*\]",
+                    source[index:],
+                )
+                if spacing:
+                    output.append("\\" + spacing.group())
+                    index += len(spacing.group())
+                    continue
             if next_char in "([":
                 closer = "\\" + (")" if next_char == "(" else "]")
                 close_at = source.find(closer, index + 2)
@@ -582,6 +594,33 @@ def _compile_latex_isolated(source: str, *, diagnostics: dict[str, Any] | None =
         return pdf_path.read_bytes()
 
 
+def tailoring_request_error(exc: Exception) -> str:
+    """Translate known failures without displaying provider bodies or request data."""
+    if isinstance(exc, APITimeoutError):
+        return "The AI request timed out. Please try again shortly."
+    if isinstance(exc, APIConnectionError):
+        return "Could not connect to the AI service. Check the internet connection and try again."
+    if isinstance(exc, APIStatusError):
+        status = exc.status_code
+        if status == 503:
+            return "The AI service is temporarily unavailable or overloaded (HTTP 503). Please try again shortly."
+        if status == 429:
+            if exc.code == "insufficient_quota":
+                return "The AI account has insufficient API quota (HTTP 429). Check API billing and usage limits."
+            return "The AI service rate limit was reached (HTTP 429). Please wait and try again."
+        if status == 401:
+            return "AI authentication failed (HTTP 401). Check the application's API key."
+        if status == 403:
+            return "AI access was denied (HTTP 403). Check the API project's permissions and model access."
+        if status == 404:
+            return "The configured AI model or endpoint was not found (HTTP 404). Check the AI configuration."
+        if status >= 500:
+            return "The AI service encountered a server error. Please try again shortly."
+        if status in {400, 422}:
+            return "The AI service rejected the tailoring request. Check the model settings and request format."
+    return "The tailoring AI request failed. Please retry; if it persists, contact the application maintainer."
+
+
 def generate_tailored_latex(
     *,
     tailoring_input: TailoringInput,
@@ -608,7 +647,7 @@ def generate_tailored_latex(
             text_format=TailoredCVOutput,
         )
     except Exception as exc:
-        raise TailoredCVError("The tailoring AI request failed.") from exc
+        raise TailoredCVError(tailoring_request_error(exc)) from exc
     parsed = getattr(response, "output_parsed", None)
     if parsed is None:
         raise TailoredCVError("The tailoring model returned no CV source.")

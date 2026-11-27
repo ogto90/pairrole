@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -18,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from matching.candidate_profile_persistence import load_env_file  # noqa: E402
+from matching.discovery_runtime import bun_command  # noqa: E402
 
 
 def now() -> str:
@@ -101,16 +101,6 @@ def load_or_initialize_status(path: Path) -> dict[str, Any]:
     if status.get("status") in {"completed", "failed"}:
         return new_status()
     raise ValueError(f"Discovery status file {path} has no recognized run status.")
-
-
-def bun_command() -> str:
-    command = shutil.which("bun")
-    if command:
-        return command
-    fallback = ROOT / ".agents" / "skills" / "jobnet-search" / "cli" / "node_modules" / ".bin" / "bun"
-    if fallback.exists():
-        return str(fallback)
-    raise RuntimeError("Bun is required to run the discovery pipeline.")
 
 
 def result_from_output(output: str, mode: str) -> dict | None:
@@ -273,7 +263,9 @@ def main() -> int:
                 command = [bun_command(), "run", "tools/generic_discovery.ts", mode, "--user-id", args.user_id]
                 if args.limit is not None:
                     command.extend(["--limit", str(args.limit)])
-                completed = subprocess.run(command, cwd=ROOT, env=os.environ.copy(), capture_output=True, text=True)
+                environment = os.environ.copy()
+                environment['PATH'] = str(Path(command[0]).parent) + os.pathsep + environment.get('PATH', '')
+                completed = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True)
                 output = completed.stdout or ""
                 if completed.stderr:
                     output += completed.stderr
