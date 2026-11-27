@@ -11,6 +11,7 @@ from scripts.postgrest_egress_report import aggregate
 
 
 def test_client_records_bytes_once_without_private_data(monkeypatch):
+    monkeypatch.setenv(metrics.REQUEST_LOG_ENV, 'all')
     output = io.StringIO()
     monkeypatch.setattr(metrics._LOGGER, 'handlers', [logging.StreamHandler(output)])
     body = '私密 profile'.encode()
@@ -33,6 +34,7 @@ def test_client_records_bytes_once_without_private_data(monkeypatch):
 
 
 def test_errors_and_empty_responses_are_measured_without_logging_error_content(monkeypatch):
+    monkeypatch.setenv(metrics.REQUEST_LOG_ENV, 'all')
     output = io.StringIO()
     monkeypatch.setattr(metrics._LOGGER, 'handlers', [logging.StreamHandler(output)])
     def fail(*_args, **_kwargs):
@@ -53,3 +55,15 @@ def test_errors_and_empty_responses_are_measured_without_logging_error_content(m
     report = aggregate(['unrelated log', *output.getvalue().splitlines()])
     assert sum(row['requests'] for row in report) == 3
     assert sum(row['errors'] for row in report) == 2
+
+
+def test_successful_requests_are_counted_but_not_logged_by_default(monkeypatch):
+    monkeypatch.delenv(metrics.REQUEST_LOG_ENV, raising=False)
+    output = io.StringIO()
+    monkeypatch.setattr(metrics._LOGGER, 'handlers', [logging.StreamHandler(output)])
+    monkeypatch.setattr(metrics, '_TOTALS', {})
+    metrics.record_response('GET', '/rest/v1/jobs?id=eq.1', 200, 10)
+    metrics.record_response('GET', '/rest/v1/jobs?id=eq.2', 500, 0)
+    rows = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [row['status'] for row in rows] == [500]
+    assert metrics.response_totals()[0]['requests'] == 2
