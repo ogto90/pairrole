@@ -386,3 +386,23 @@ def test_user_approved_employment_type_overrides_only_the_matching_listing_type(
         verified_employment_type_status="accepted", verified_employment_type="contract",
     )
     assert accepted_only_result.employment_type == "eligible"
+
+
+def test_contract_detection_requires_employment_context_shared_fixture():
+    """Shared with tests/eligibility_engine.test.ts so Python and Bun agree."""
+    from matching.job_eligibility import detected_employment_types
+
+    fixture = json.loads((Path(__file__).parent / "fixtures/employment_type_cases.json").read_text(encoding="utf-8"))
+    for case in fixture["cases"]:
+        detected = detected_employment_types(case["employment_type"], case["description"], case["title"])
+        assert ("contract" in detected) == case["contract"], case
+
+
+def test_full_time_listing_mentioning_smart_contracts_is_not_excluded_as_contract():
+    result = assess_discovered_job(
+        title="Security Engineer", location="AMER/EMEA/APAC", remote_scope=None,
+        description="Perform cutting-edge security research in popular blockchains and smart contract platforms. " * 20,
+        employment_type="FullTime", description_kind="full",
+        profile=profile(target_titles=["Security Engineer"], excluded_employment_types=["contract"]),
+    )
+    assert result.employment_type == "eligible"

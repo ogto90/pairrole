@@ -412,7 +412,7 @@ def merge_dashboard_rows(
             isinstance(description, str)
             and isinstance(employment_verification, dict)
             and employment_verification.get("jd_sha256") == hashlib.sha256(description.encode("utf-8")).hexdigest()
-            and employment_verification.get("employment_type") in detected_employment_types(row.get("employment_type"), description)
+            and employment_verification.get("employment_type") in detected_employment_types(row.get("employment_type"), description, effective_metadata.title)
         )
         eligibility = assess_discovered_job(
             title=effective_metadata.title,
