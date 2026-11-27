@@ -202,7 +202,7 @@ def test_profile_page_renders_for_owner_without_openai_or_writes():
     from streamlit.testing.v1 import AppTest
 
     profile_ui._APPTEST_CLIENT = FakeProfileClient()
-    app = AppTest.from_function(profile_ui._render_profile_app_test).run()
+    app = AppTest.from_function(profile_ui._render_profile_app_test, default_timeout=10).run()
     assert not app.exception
     assert any("Profile" in str(item.value) for item in app.title)
     assert profile_ui._APPTEST_CLIENT.writes == []

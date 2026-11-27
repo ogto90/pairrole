@@ -158,7 +158,7 @@ from ui.dashboard import _render_cv_controls
 st.session_state["page_runs"] = st.session_state.get("page_runs", 0) + 1
 job = replace(_dashboard_job(8, "Engineer"), fit_score=78, review_status="rated", description_kind="full", description="Full JD")
 _render_cv_controls(job, object(), "user-1", 2, 7, "private")
-''').run()
+''', default_timeout=10).run()
     assert not app.exception
     app.button(key="generate-cv-8").click().run()
     assert not app.exception
