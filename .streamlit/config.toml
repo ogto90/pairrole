@@ -8,3 +8,9 @@ textColor = "#F3F4F6"
 [server]
 # The local app uses a server-side Supabase secret and has no login UI.
 address = "127.0.0.1"
+# No source watcher. The default watcher recursively watches the whole repo,
+# including the local Postgres data directory under .local-supabase/. Every
+# database write (archiving, rating) floods it, overflows the inotify queue and
+# triggers full rescans that pin a CPU core and stall page reruns, leaving a
+# blank page. Restart the app to pick up code changes.
+fileWatcherType = "none"
