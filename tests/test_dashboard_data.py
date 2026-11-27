@@ -1184,3 +1184,29 @@ def test_source_repairs_preserve_overrides_and_fit_identity_tracks_effective_tit
     assert evaluation_fingerprint(candidate_profile=profile, job=before_effective) == evaluation_fingerprint(
         candidate_profile=profile, job=after_effective
     )
+
+
+def test_jd_required_listing_can_fetch_its_jd_but_handled_or_complete_ones_cannot():
+    from ui.dashboard_data import can_retry_pending_evidence
+
+    pending_jd = job(501)
+    assert pending_jd.jd_required and pending_jd.decision.primary_reason_code == "full_jd_required"
+    assert can_retry_pending_evidence(pending_jd)
+    for blocked in (
+        replace(pending_jd, description_kind="full", description="Full description"),
+        replace(pending_jd, review_status="ignored"),
+        replace(pending_jd, availability_status="expired"),
+        replace(pending_jd, source="manual", is_manual=True),
+        replace(pending_jd, duplicate_review_status="pending"),
+        replace(pending_jd, user_verification_status="unable_to_verify"),
+    ):
+        assert not can_retry_pending_evidence(blocked)
+
+
+def test_backfill_selects_only_retryable_listings_without_a_full_jd_once():
+    from scripts.backfill_missing_jds import select_candidates
+
+    missing = job(601)
+    complete = replace(job(602), description_kind="full", description="Full description")
+    ignored = replace(job(603), review_status="ignored")
+    assert [selected.id for selected in select_candidates([missing, complete, ignored, missing])] == [601]

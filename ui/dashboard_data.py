@@ -757,7 +757,18 @@ def can_retry_pending_evidence(job: DashboardJob) -> bool:
             or job.seniority_eligibility in {"unclear", "ineligible"}
         )
     )
-    return ordinary_retry or missing_jd_for_review
+    # A listing that passes every preference but lacks a full JD can usually be
+    # hydrated automatically; otherwise its only path is pasting the JD by hand.
+    jd_fetch = (
+        job.jd_required
+        and not job.is_manual
+        and job.availability_status != "expired"
+        and not job.metadata_unresolved
+        and job.duplicate_review_status != "pending"
+        and job.user_verification_status is None
+        and job.review_status not in HANDLED_REVIEW_STATES
+    )
+    return ordinary_retry or missing_jd_for_review or jd_fetch
 
 
 def can_archive_job(job: DashboardJob) -> bool:

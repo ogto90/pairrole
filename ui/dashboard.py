@@ -12,7 +12,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import time
 from threading import Lock
@@ -21,6 +20,7 @@ from urllib.parse import urlencode, urlparse
 
 import streamlit as st
 
+from matching.discovery_runtime import bun_command
 from matching.candidate_profile_persistence import (
     PersistenceError,
     SupabaseRestClient,
@@ -149,13 +149,12 @@ def run_pending_evidence_retry(job_ids: list[int], *, user_id: str) -> dict[str,
         raise ValueError(f"Choose between 1 and {MAX_PENDING_RETRY_BATCH} eligible jobs.")
     root = Path(__file__).resolve().parents[1]
     script = root / "tools" / "process_pending_job_evidence.ts"
-    bun_candidates = [
-        root / ".agents/skills/jobnet-search/cli/node_modules/.bin/bun",
-        Path(shutil.which("bun")) if shutil.which("bun") else None,
-    ]
-    bun = next((path for path in bun_candidates if path is not None and path.exists()), None)
-    if bun is None:
-        raise RuntimeError("The local Bun runtime is unavailable for verification retries.")
+    # Same resolution as discovery. The npm "bun" package under a skill's
+    # node_modules can be an uninstalled placeholder that exists but cannot run.
+    try:
+        bun = bun_command()
+    except RuntimeError as exc:
+        raise RuntimeError("The local Bun runtime is unavailable for verification retries.") from exc
     environment = os.environ.copy()
     environment["PAIRROLE_USER_ID"] = user_id
     completed = subprocess.run(
@@ -2516,6 +2515,10 @@ def _render_lifecycle_actions(
                     _retry_pending_jobs([job], user_id=user_id)
         if not archive_view and job.pending_category == "Verification needed" and job.user_verification_status is None:
             _manual_verification_control(st.container(), job, client, user_id=user_id, disabled=disabled)
+    elif job.jd_required and can_retry_pending_evidence(job):
+        if st.button("Fetch JD", key=f"fetch-jd-{job.id}", disabled=disabled,
+                     help="Check the listing is live and fetch its full job description. No AI Fit runs."):
+            _retry_pending_jobs([job], user_id=user_id)
 
     columns = st.columns([1, 1])
     if can_apply_state(state) and job.actionable and job.live_for_user:

@@ -25,7 +25,7 @@ def job_environment() -> dict[str, str]:
     env["PAIRROLE_ATS_REGISTRY_SOURCE"] = "supabase"
     env["PAIRROLE_ATS_REGISTRY_MIN_VERIFIED"] = "1"
     env["PAIRROLE_TRACING_ENABLED"] = "false"
-    env["PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS"] = "30"
+    env["PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS"] = "150"
     return env
 
 

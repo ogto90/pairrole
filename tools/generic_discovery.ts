@@ -585,12 +585,18 @@ export function mergePersistedJobPayload(job: DiscoveredJob, current: Record<str
 }
 
 export const DEFAULT_DASHBOARD_ATS_BOARD_BUDGET = 8
-export const DEFAULT_JD_ENRICHMENT_BUDGET = 30
+// JD fetches per run. Over 81 runs, 2,324 fetches saw no rate limits and ~0.5s
+// each at concurrency 3, while a cap of 30 deferred 4,731 jobs into manual
+// "JD required" review. 150 covers a typical run (50-150 candidates).
+export const DEFAULT_JD_ENRICHMENT_BUDGET = 150
+export const MAX_JD_ENRICHMENT_BUDGET = 300
 
 export function configuredJdEnrichmentBudget(value = process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS): number {
   if (value === undefined || value.trim() === "") return DEFAULT_JD_ENRICHMENT_BUDGET
-  if (value.trim() === "30" || value.trim() === "60") return Number(value.trim())
-  throw new Error("PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS must be 30 or 60")
+  const trimmed = value.trim()
+  const budget = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN
+  if (Number.isSafeInteger(budget) && budget >= 1 && budget <= MAX_JD_ENRICHMENT_BUDGET) return budget
+  throw new Error(`PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS must be a whole number from 1 to ${MAX_JD_ENRICHMENT_BUDGET}`)
 }
 
 export function configuredDashboardAtsBoardBudget(value = process.env.PAIRROLE_ATS_BOARD_BUDGET): number {
