@@ -230,14 +230,20 @@ describe("eligibility evaluation", () => {
 })
 
 describe("Python dashboard / TypeScript scheduled path equivalence", () => {
-  test("shared SearchProfile cases produce identical dimension and actionability outcomes", async () => {
+  test("shared SearchProfile cases match, apart from documented scheduled-path differences", async () => {
     const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/search_profile_path_equivalence.json"), "utf8")) as {
       profiles: Record<string, Record<string, unknown>>
       cases: Array<Record<string, string | Record<string, string | boolean>>>
     }
 
     for (const scenario of fixture.cases) {
-      const expected = scenario.expected as Record<string, string | boolean>
+      // The dashboard leaves language and work model to user review; the
+      // scheduled path filters on them. `expected_scheduled` overrides the
+      // shared expectation only where that deliberate difference applies.
+      const expected = {
+        ...(scenario.expected as Record<string, string | boolean>),
+        ...((scenario.expected_scheduled ?? {}) as Record<string, string | boolean>),
+      }
       const profileKey = String(scenario.profile)
       const profile: SearchProfileRecord = {
         id: 1,

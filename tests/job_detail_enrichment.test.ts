@@ -364,6 +364,10 @@ describe("SmartRecruiters public posting detail", () => {
   })
 })
 
+// The 438-job cases take ~4-5s of CPU locally, right at Bun's 5s default,
+// so they get headroom for slower CI runners.
+const HEAVY_TEST_TIMEOUT_MS = 20_000
+
 describe("enrichment outcome accounting and selection", () => {
   const fullDescription = "Responsibilities include designing secure systems, collaborating with engineering teams, conducting assessments, improving controls, and documenting outcomes. Requirements include relevant professional experience and clear communication. ".repeat(3)
 
@@ -400,7 +404,7 @@ describe("enrichment outcome accounting and selection", () => {
     expect(result.stats.attempted).toBe(result.stats.success + result.stats.notFound + result.stats.failed + result.stats.rateLimited + result.stats.timeout)
     expect(result.stats.considered).toBe(result.stats.notNeeded + result.stats.notSupported + result.stats.deferred + result.stats.attempted)
     expect(result.stats.bySource["jobgether-search"]?.attempted).toBe(expected)
-  })
+  }, HEAVY_TEST_TIMEOUT_MS)
 
   test.each([
     [30, { "jobgether-search": 11, greenhouse: 10, "linkedin-search": 9 }],
@@ -430,7 +434,7 @@ describe("enrichment outcome accounting and selection", () => {
     }
     expect(Object.values(result.stats.bySource).reduce((sum, source) => sum + source.attempted, 0)).toBe(budget)
     expect(formatEnrichmentSummary(result.stats)).toContain(`budget=${budget}`)
-  })
+  }, HEAVY_TEST_TIMEOUT_MS)
 
   test("unsupported and already-full observations do not consume a global budget", async () => {
     const full = job({ title: "Application Security Engineer", id: "full", sourceType: "ats", location: "Remote Europe", description: fullDescription })
