@@ -86,7 +86,7 @@ interface ResolveOutcome {
   ats?: AtsMapping
 }
 
-const USER_AGENT = "ai-job-search-ats-detector/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const USER_AGENT = "pairrole-ats-detector/1.0 (+https://github.com/ogto90/pairrole)"
 const DEFAULT_MAX_BODY_BYTES = 512_000
 const VERIFIED_REVALIDATE_MS = 60 * 24 * 60 * 60 * 1000
 const CANDIDATE_RETRY_MS = 14 * 24 * 60 * 60 * 1000

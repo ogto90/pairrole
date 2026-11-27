@@ -252,22 +252,22 @@ export function capCandidateTraces(records: CandidateTraceRecord[], limit: numbe
 }
 
 export function traceRetentionDays(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(env.AI_JOB_SEARCH_TRACE_RETENTION_DAYS ?? "30")
+  const raw = Number(env.PAIRROLE_TRACE_RETENTION_DAYS ?? "30")
   return Number.isFinite(raw) && raw >= 1 && raw <= 365 ? Math.floor(raw) : 30
 }
 
 export function traceCleanupBatchSize(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(env.AI_JOB_SEARCH_TRACE_CLEANUP_BATCH ?? "5000")
+  const raw = Number(env.PAIRROLE_TRACE_CLEANUP_BATCH ?? "5000")
   return Number.isFinite(raw) && raw >= 1 && raw <= 5000 ? Math.floor(raw) : 5000
 }
 
 export function traceCandidateLimit(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(env.AI_JOB_SEARCH_TRACE_MAX_CANDIDATES ?? "5000")
+  const raw = Number(env.PAIRROLE_TRACE_MAX_CANDIDATES ?? "5000")
   return Number.isFinite(raw) && raw >= 1 && raw <= 50000 ? Math.floor(raw) : 5000
 }
 
 export function candidateTracingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.AI_JOB_SEARCH_TRACING_ENABLED?.trim().toLowerCase() === "true"
+  return env.PAIRROLE_TRACING_ENABLED?.trim().toLowerCase() === "true"
 }
 
 export function traceSummary(records: CandidateTraceRecord[]): Record<string, unknown> {

@@ -755,7 +755,7 @@ def test_pending_retry_runner_passes_only_explicit_ids_and_current_user(monkeypa
     assert result == {"jobs": []}
     command, kwargs = captured[0]
     assert command[-4:] == ["--ids", "4,8", "--user-id", "user-1"]
-    assert kwargs["env"]["AI_JOB_SEARCH_USER_ID"] == "user-1"
+    assert kwargs["env"]["PAIRROLE_USER_ID"] == "user-1"
     assert kwargs["timeout"] == 600
 
 

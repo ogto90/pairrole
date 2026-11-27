@@ -48,18 +48,18 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          AI_JOB_SEARCH_USER_ID: ${{ secrets.AI_JOB_SEARCH_USER_ID }}
-          AI_JOB_SEARCH_ATS_REGISTRY_SOURCE: supabase
-          AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED: "1"
+          PAIRROLE_USER_ID: ${{ secrets.PAIRROLE_USER_ID }}
+          PAIRROLE_ATS_REGISTRY_SOURCE: supabase
+          PAIRROLE_ATS_REGISTRY_MIN_VERIFIED: "1"
           # GITHUB_RUN_NUMBER is stable on retries and advances for each run.
-          AI_JOB_SEARCH_ATS_ROTATION_SLOT: "${{ github.run_number }}"
+          PAIRROLE_ATS_ROTATION_SLOT: "${{ github.run_number }}"
         run: |
           set -euo pipefail
           test -n "$SUPABASE_URL" || { echo "Missing SUPABASE_URL secret"; exit 1; }
           test -n "$SUPABASE_SECRET_KEY" || { echo "Missing SUPABASE_SECRET_KEY secret"; exit 1; }
-          test -n "$AI_JOB_SEARCH_USER_ID" || { echo "Missing AI_JOB_SEARCH_USER_ID secret"; exit 1; }
-          test "$AI_JOB_SEARCH_ATS_REGISTRY_SOURCE" = "supabase" || { echo "Scheduled discovery must use the durable ATS board registry"; exit 1; }
-          [[ "$AI_JOB_SEARCH_ATS_ROTATION_SLOT" =~ ^[0-9]+$ ]] || { echo "Missing or invalid ATS rotation slot"; exit 1; }
+          test -n "$PAIRROLE_USER_ID" || { echo "Missing PAIRROLE_USER_ID secret"; exit 1; }
+          test "$PAIRROLE_ATS_REGISTRY_SOURCE" = "supabase" || { echo "Scheduled discovery must use the durable ATS board registry"; exit 1; }
+          [[ "$PAIRROLE_ATS_ROTATION_SLOT" =~ ^[0-9]+$ ]] || { echo "Missing or invalid ATS rotation slot"; exit 1; }
 
       - name: Install dependencies for scraper CLIs with runtime packages
         run: |
@@ -73,10 +73,10 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          AI_JOB_SEARCH_USER_ID: ${{ secrets.AI_JOB_SEARCH_USER_ID }}
-          AI_JOB_SEARCH_ATS_REGISTRY_SOURCE: supabase
-          AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED: "1"
-          AI_JOB_SEARCH_ATS_ROTATION_SLOT: "${{ github.run_number }}"
+          PAIRROLE_USER_ID: ${{ secrets.PAIRROLE_USER_ID }}
+          PAIRROLE_ATS_REGISTRY_SOURCE: supabase
+          PAIRROLE_ATS_REGISTRY_MIN_VERIFIED: "1"
+          PAIRROLE_ATS_ROTATION_SLOT: "${{ github.run_number }}"
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
           JOOBLE_API_KEY_AT: ${{ secrets.JOOBLE_API_KEY_AT }}
@@ -84,12 +84,12 @@ jobs:
           JOOBLE_API_KEY_UK: ${{ secrets.JOOBLE_API_KEY_UK }}
           REED_API_KEY: ${{ secrets.REED_API_KEY }}
           JOOBLE_MARKETS: at,de,uk
-          AI_JOB_SEARCH_TRACING_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true }}
-          AI_JOB_SEARCH_TRACE_MAX_CANDIDATES: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true && '500' || '5000' }}
-          AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_jd_enrichment_60_pilot == true && '60' || '30' }}
+          PAIRROLE_TRACING_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true }}
+          PAIRROLE_TRACE_MAX_CANDIDATES: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true && '500' || '5000' }}
+          PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_jd_enrichment_60_pilot == true && '60' || '30' }}
         run: |
-          echo "JD enrichment budget: $AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS adapter attempts."
-          if [[ "$AI_JOB_SEARCH_TRACING_ENABLED" == "true" ]]; then
+          echo "JD enrichment budget: $PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS adapter attempts."
+          if [[ "$PAIRROLE_TRACING_ENABLED" == "true" ]]; then
             echo "Candidate-level tracing enabled for this manual run (diagnostic cap: 500)."
           else
             echo "Candidate-level tracing disabled for this run."
@@ -97,21 +97,21 @@ jobs:
           python scripts/run_dashboard_discovery.py \
             --status-file "$RUNNER_TEMP/discovery-status.json" \
             --log-file "$RUNNER_TEMP/discovery.log" \
-            --user-id "$AI_JOB_SEARCH_USER_ID"
+            --user-id "$PAIRROLE_USER_ID"
 
       - name: Build summaries for this discovery run
         if: steps.discovery.outcome == 'success'
         continue-on-error: true
         env:
           DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          AI_JOB_SEARCH_USER_ID: ${{ secrets.AI_JOB_SEARCH_USER_ID }}
+          PAIRROLE_USER_ID: ${{ secrets.PAIRROLE_USER_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           set -euo pipefail
           python scripts/build_dashboard_summaries.py \
             --supabase-url "$SUPABASE_URL" \
             --expected-project-ref "${{ vars.SUPABASE_PROJECT_REF }}" \
-            --user-id "$AI_JOB_SEARCH_USER_ID" \
+            --user-id "$PAIRROLE_USER_ID" \
             --discovery-status-file "$RUNNER_TEMP/discovery-status.json" \
             --retries 3 \
             --allow-production \

@@ -130,9 +130,8 @@ pending migrations automatically; review the migration history before deployment
 
 ## Discovery monitoring and desktop launches
 
-The active local checkout is `/home/ot/Desktop/pairrole`. The previous
-`ai-job-search-master` path remains a compatibility symlink for existing Docker
-bind mounts and Python virtual environments. Local service units use the new path.
+The local checkout, Docker bind mounts, Python virtual environment and service
+units all use one `pairrole` directory; no compatibility paths remain.
 
 The Jobs page checks the discovery timer and persisted run history every minute.
 It warns when the timer is inactive, a scheduled run is missing, a search failed,

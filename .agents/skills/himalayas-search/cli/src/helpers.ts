@@ -2,7 +2,7 @@ export const SEARCH_API_URL = "https://himalayas.app/jobs/api/search"
 export const BROWSE_API_URL = "https://himalayas.app/jobs/api"
 export const HOST = "himalayas.app"
 
-const UA = "ai-job-search-himalayas-cli/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const UA = "pairrole-himalayas-cli/1.0 (+https://github.com/ogto90/pairrole)"
 const MAX_ATTEMPTS = 3
 
 export interface HimalayasLocationObject {

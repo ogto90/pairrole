@@ -36,11 +36,11 @@ class JdEnrichmentWorkflowActivationTests(unittest.TestCase):
 
     def test_exact_activation_is_scoped_to_discovery_step(self):
         self.assertIn(
-            f"AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS: ${{{{ {PILOT_EXPRESSION} }}}}",
+            f"PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS: ${{{{ {PILOT_EXPRESSION} }}}}",
             self.discovery_step,
         )
-        self.assertEqual(self.workflow.count("AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS:"), 1)
-        self.assertIn(f"AI_JOB_SEARCH_TRACING_ENABLED: ${{{{ {TRACING_EXPRESSION} }}}}", self.discovery_step)
+        self.assertEqual(self.workflow.count("PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS:"), 1)
+        self.assertIn(f"PAIRROLE_TRACING_ENABLED: ${{{{ {TRACING_EXPRESSION} }}}}", self.discovery_step)
         self.assertIn("inputs.enable_candidate_tracing == true && '500' || '5000'", self.discovery_step)
         self.assertIn('JD enrichment: budget=', self.workflow)
         self.assertNotIn("  schedule:", self.workflow)

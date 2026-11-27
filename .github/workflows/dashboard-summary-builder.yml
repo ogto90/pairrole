@@ -34,16 +34,16 @@ jobs:
       - name: Build pending summary batches
         env:
           DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          AI_JOB_SEARCH_USER_ID: ${{ secrets.AI_JOB_SEARCH_USER_ID }}
+          PAIRROLE_USER_ID: ${{ secrets.PAIRROLE_USER_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_URL" || { echo "Missing SUPABASE_URL secret"; exit 1; }
           test -n "$DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY" || { echo "Missing SUPABASE_SECRET_KEY secret"; exit 1; }
-          test -n "$AI_JOB_SEARCH_USER_ID" || { echo "Missing AI_JOB_SEARCH_USER_ID secret"; exit 1; }
+          test -n "$PAIRROLE_USER_ID" || { echo "Missing PAIRROLE_USER_ID secret"; exit 1; }
           python scripts/build_dashboard_summaries.py \
             --supabase-url "$SUPABASE_URL" \
             --expected-project-ref "${{ vars.SUPABASE_PROJECT_REF }}" \
-            --user-id "$AI_JOB_SEARCH_USER_ID" \
+            --user-id "$PAIRROLE_USER_ID" \
             --retries 3 \
             --allow-production

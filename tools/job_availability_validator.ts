@@ -78,7 +78,7 @@ export interface ValidationStats {
 type CacheRecord = AvailabilityValidation & { cacheKey: string }
 
 const DEFAULT_CACHE_PATH = "job_scraper/availability_cache.json"
-const USER_AGENT = "ai-job-search-availability-validator/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const USER_AGENT = "pairrole-availability-validator/1.0 (+https://github.com/ogto90/pairrole)"
 const DEFAULT_MAX_REDIRECTS = 5
 const DEFAULT_MAX_BODY_BYTES = 512_000
 const ACTIVE_TTL_MS = 18 * 60 * 60 * 1000

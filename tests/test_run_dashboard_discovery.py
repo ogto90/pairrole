@@ -196,7 +196,7 @@ def test_cli_entrypoint_starts_stub_bun_from_clean_runner_workspace(tmp_path):
     for name in (
         "SUPABASE_URL",
         "SUPABASE_SECRET_KEY",
-        "AI_JOB_SEARCH_USER_ID",
+        "PAIRROLE_USER_ID",
         "ADZUNA_APP_ID",
         "ADZUNA_APP_KEY",
         "JOOBLE_API_KEY_AT",
@@ -313,7 +313,7 @@ def test_sensitive_environment_values_are_redacted_from_status_and_logs(monkeypa
     secrets = {
         "SUPABASE_URL": "https://private-project.supabase.co",
         "SUPABASE_SECRET_KEY": "secret-supabase-key-value",
-        "AI_JOB_SEARCH_USER_ID": "private-user-identifier",
+        "PAIRROLE_USER_ID": "private-user-identifier",
         "ADZUNA_APP_ID": "private-adzuna-id",
     }
     for name, value in secrets.items():

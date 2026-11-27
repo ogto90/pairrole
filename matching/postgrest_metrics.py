@@ -5,7 +5,7 @@ import logging
 import re
 from threading import Lock
 
-_LOGGER = logging.getLogger('ai_job_search.postgrest_metrics')
+_LOGGER = logging.getLogger('pairrole.postgrest_metrics')
 if not _LOGGER.handlers:
     _LOGGER.addHandler(logging.StreamHandler())
 _LOGGER.setLevel(logging.INFO)

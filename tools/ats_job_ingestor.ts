@@ -87,7 +87,7 @@ export interface AtsIngestionOptions extends AtsFetchOptions {
   noHistory?: boolean
 }
 
-const USER_AGENT = "ai-job-search-ats-job-ingestor/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const USER_AGENT = "pairrole-ats-job-ingestor/1.0 (+https://github.com/ogto90/pairrole)"
 const DEFAULT_MAX_BODY_BYTES = 2_000_000
 
 function activeValidation(now: string, provider: AtsProvider, apiUrl: string): AvailabilityValidation {
@@ -621,10 +621,10 @@ function configuredRotationSlot(explicit?: number): number | undefined {
     if (!Number.isSafeInteger(explicit) || explicit < 0) throw new Error("ATS rotation slot must be a nonnegative integer")
     return explicit
   }
-  const value = process.env.AI_JOB_SEARCH_ATS_ROTATION_SLOT
+  const value = process.env.PAIRROLE_ATS_ROTATION_SLOT
   if (value === undefined || value.trim() === "") return undefined
   const slot = Number(value)
-  if (!Number.isSafeInteger(slot) || slot < 0) throw new Error("AI_JOB_SEARCH_ATS_ROTATION_SLOT must be a nonnegative integer")
+  if (!Number.isSafeInteger(slot) || slot < 0) throw new Error("PAIRROLE_ATS_ROTATION_SLOT must be a nonnegative integer")
   return slot
 }
 
@@ -692,11 +692,11 @@ export async function runAtsJobIngestion(options: AtsIngestionOptions = {}): Pro
   const history = options.noHistory ? undefined : await JsonJobHistoryStore.load(options.historyPath ?? DEFAULT_JOB_HISTORY_PATH)
   const registryCompanies = registry.listCompanies()
   const verified = registryCompanies.filter((company) => company.ats.verified && company.ats.status === "verified")
-  const configuredMinimum = options.registryMinVerifiedBoards ?? (process.env.AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED === undefined
+  const configuredMinimum = options.registryMinVerifiedBoards ?? (process.env.PAIRROLE_ATS_REGISTRY_MIN_VERIFIED === undefined
     ? undefined
-    : Number(process.env.AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED))
+    : Number(process.env.PAIRROLE_ATS_REGISTRY_MIN_VERIFIED))
   if (configuredMinimum !== undefined && (!Number.isInteger(configuredMinimum) || configuredMinimum < 0)) {
-    throw new Error("AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED must be a nonnegative integer")
+    throw new Error("PAIRROLE_ATS_REGISTRY_MIN_VERIFIED must be a nonnegative integer")
   }
   if (configuredMinimum !== undefined && verified.length < configuredMinimum) {
     throw new Error(`ATS board registry loaded ${verified.length} verified board(s) from ${loadedRegistry.source}; expected at least ${configuredMinimum}. This is a registry/configuration failure, not an empty employer-board snapshot.`)

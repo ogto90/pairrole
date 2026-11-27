@@ -72,7 +72,7 @@ def main() -> int:
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--expected-project-ref", help="Expected Supabase project ref, or 'local' for localhost:54321.")
     target.add_argument("--expected-url", help="Exact independently configured API origin for a self-hosted deployment.")
-    parser.add_argument("--user-id", default=os.getenv("AI_JOB_SEARCH_USER_ID"))
+    parser.add_argument("--user-id", default=os.getenv("PAIRROLE_USER_ID"))
     parser.add_argument("--max-batches", type=int, help="Stop after this many 50-job batches; rerun to resume.")
     parser.add_argument(
         "--discovery-status-file", type=Path,
@@ -98,7 +98,7 @@ def main() -> int:
     url = args.supabase_url.rstrip("/")
     secret = os.getenv("DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY")
     if not args.user_id or not secret:
-        parser.error("Set DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY and AI_JOB_SEARCH_USER_ID or pass --user-id")
+        parser.error("Set DASHBOARD_SUMMARY_SUPABASE_SECRET_KEY and PAIRROLE_USER_ID or pass --user-id")
     try:
         url = validate_target(url, project_ref=args.expected_project_ref,
                               expected_url=args.expected_url, allow_production=args.allow_production)

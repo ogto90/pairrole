@@ -1,6 +1,6 @@
 export const API_BASE = "https://api.adzuna.com/v1/api"
 
-const UA = "ai-job-search-adzuna-cli/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const UA = "pairrole-adzuna-cli/1.0 (+https://github.com/ogto90/pairrole)"
 const MAX_ATTEMPTS = 3
 
 interface EnvLike {

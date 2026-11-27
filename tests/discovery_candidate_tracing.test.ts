@@ -151,21 +151,21 @@ describe("candidate trace primitives", () => {
 
   test("tracing is opt-in and disabled by default", () => {
     expect(candidateTracingEnabled({})).toBe(false)
-    expect(candidateTracingEnabled({ AI_JOB_SEARCH_TRACING_ENABLED: "true" })).toBe(true)
-    expect(candidateTracingEnabled({ AI_JOB_SEARCH_TRACING_ENABLED: "1" })).toBe(false)
+    expect(candidateTracingEnabled({ PAIRROLE_TRACING_ENABLED: "true" })).toBe(true)
+    expect(candidateTracingEnabled({ PAIRROLE_TRACING_ENABLED: "1" })).toBe(false)
   })
 
   test("trace retention defaults to 30 days and validates configuration", () => {
     expect(traceRetentionDays({})).toBe(30)
-    expect(traceRetentionDays({ AI_JOB_SEARCH_TRACE_RETENTION_DAYS: "45" })).toBe(45)
-    expect(traceRetentionDays({ AI_JOB_SEARCH_TRACE_RETENTION_DAYS: "0" })).toBe(30)
-    expect(traceRetentionDays({ AI_JOB_SEARCH_TRACE_RETENTION_DAYS: "366" })).toBe(30)
+    expect(traceRetentionDays({ PAIRROLE_TRACE_RETENTION_DAYS: "45" })).toBe(45)
+    expect(traceRetentionDays({ PAIRROLE_TRACE_RETENTION_DAYS: "0" })).toBe(30)
+    expect(traceRetentionDays({ PAIRROLE_TRACE_RETENTION_DAYS: "366" })).toBe(30)
   })
 
   test("candidate caps and cleanup batch size are configurable within hard bounds", () => {
-    expect(traceCandidateLimit({ AI_JOB_SEARCH_TRACE_MAX_CANDIDATES: "750" })).toBe(750)
-    expect(traceCandidateLimit({ AI_JOB_SEARCH_TRACE_MAX_CANDIDATES: "999999" })).toBe(5000)
-    expect(traceCleanupBatchSize({ AI_JOB_SEARCH_TRACE_CLEANUP_BATCH: "120" })).toBe(120)
-    expect(traceCleanupBatchSize({ AI_JOB_SEARCH_TRACE_CLEANUP_BATCH: "9000" })).toBe(5000)
+    expect(traceCandidateLimit({ PAIRROLE_TRACE_MAX_CANDIDATES: "750" })).toBe(750)
+    expect(traceCandidateLimit({ PAIRROLE_TRACE_MAX_CANDIDATES: "999999" })).toBe(5000)
+    expect(traceCleanupBatchSize({ PAIRROLE_TRACE_CLEANUP_BATCH: "120" })).toBe(120)
+    expect(traceCleanupBatchSize({ PAIRROLE_TRACE_CLEANUP_BATCH: "9000" })).toBe(5000)
   })
 })

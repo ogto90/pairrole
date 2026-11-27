@@ -32,15 +32,15 @@ class TracingWorkflowActivationTests(unittest.TestCase):
 
     def test_activation_and_fixed_cap_are_scoped_to_discovery_step(self):
         self.assertIn(
-            f"AI_JOB_SEARCH_TRACING_ENABLED: ${{{{ {ACTIVATION_EXPRESSION} }}}}",
+            f"PAIRROLE_TRACING_ENABLED: ${{{{ {ACTIVATION_EXPRESSION} }}}}",
             self.discovery_step,
         )
         self.assertIn(
-            "AI_JOB_SEARCH_TRACE_MAX_CANDIDATES: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true && '500' || '5000' }}",
+            "PAIRROLE_TRACE_MAX_CANDIDATES: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_candidate_tracing == true && '500' || '5000' }}",
             self.discovery_step,
         )
-        self.assertEqual(self.workflow.count("AI_JOB_SEARCH_TRACING_ENABLED:"), 1)
-        self.assertEqual(self.workflow.count("AI_JOB_SEARCH_TRACE_MAX_CANDIDATES:"), 1)
+        self.assertEqual(self.workflow.count("PAIRROLE_TRACING_ENABLED:"), 1)
+        self.assertEqual(self.workflow.count("PAIRROLE_TRACE_MAX_CANDIDATES:"), 1)
         self.assertIn('Candidate-level tracing enabled for this manual run (diagnostic cap: 500).', self.discovery_step)
         self.assertIn('Candidate-level tracing disabled for this run.', self.discovery_step)
 
@@ -48,7 +48,7 @@ class TracingWorkflowActivationTests(unittest.TestCase):
         self.assertNotIn("  schedule:", self.workflow)
         self.assertIn("  workflow_dispatch:\n", self.workflow)
         self.assertIn('environment: "Job search"', self.workflow)
-        self.assertIn("AI_JOB_SEARCH_ATS_ROTATION_SLOT: \"${{ github.run_number }}\"", self.discovery_step)
+        self.assertIn("PAIRROLE_ATS_ROTATION_SLOT: \"${{ github.run_number }}\"", self.discovery_step)
         self.assertIn("python scripts/run_dashboard_discovery.py \\", self.discovery_step)
 
     def test_run_summary_emits_bounded_trace_write_counters(self):

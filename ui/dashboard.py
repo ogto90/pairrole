@@ -157,7 +157,7 @@ def run_pending_evidence_retry(job_ids: list[int], *, user_id: str) -> dict[str,
     if bun is None:
         raise RuntimeError("The local Bun runtime is unavailable for verification retries.")
     environment = os.environ.copy()
-    environment["AI_JOB_SEARCH_USER_ID"] = user_id
+    environment["PAIRROLE_USER_ID"] = user_id
     completed = subprocess.run(
         [str(bun), str(script), "--ids", ",".join(map(str, ids)), "--user-id", user_id],
         cwd=root,

@@ -40,7 +40,7 @@ function parseIds(argv: string[]): number[] {
 
 function parseUserId(argv: string[]): string {
   const index = argv.indexOf("--user-id")
-  const value = index >= 0 ? argv[index + 1] : process.env.AI_JOB_SEARCH_USER_ID
+  const value = index >= 0 ? argv[index + 1] : process.env.PAIRROLE_USER_ID
   if (!value?.trim()) throw new Error("usage: bun run tools/process_pending_job_evidence.ts --user-id <current-user-id> --ids 1,2,3")
   return value.trim()
 }

@@ -540,8 +540,8 @@ async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
 
 export async function createDailyReport(options: DailyReportOptions = {}): Promise<DailyReportResult> {
   const now = options.now ?? new Date()
-  const userId = options.userId?.trim() || process.env.AI_JOB_SEARCH_USER_ID?.trim()
-  if (!userId) throw new Error("Daily report requires --user-id or AI_JOB_SEARCH_USER_ID to resolve the active SearchProfile")
+  const userId = options.userId?.trim() || process.env.PAIRROLE_USER_ID?.trim()
+  if (!userId) throw new Error("Daily report requires --user-id or PAIRROLE_USER_ID to resolve the active SearchProfile")
   const discoveryStore = options.profileLoader ? undefined : await createSupabaseDiscoveryStoreFromEnv()
   const profile = await (options.profileLoader ?? (async (id: string) => discoveryStore!.getActiveSearchProfile(id)))(userId)
   if (profile.user_id !== userId) throw new Error("Resolved SearchProfile does not belong to the requested user")

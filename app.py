@@ -33,11 +33,11 @@ ROOT = Path(__file__).resolve().parent
 
 
 def _dashboard_summary_activation_setting() -> str:
-    value = os.getenv("AI_JOB_SEARCH_BOUNDED_DASHBOARD_ENABLED")
+    value = os.getenv("PAIRROLE_BOUNDED_DASHBOARD_ENABLED")
     if value:
         return value
     try:
-        return str(st.secrets.get("AI_JOB_SEARCH_BOUNDED_DASHBOARD_ENABLED", "true"))
+        return str(st.secrets.get("PAIRROLE_BOUNDED_DASHBOARD_ENABLED", "true"))
     except Exception:
         return "true"
 
@@ -235,7 +235,7 @@ def main() -> None:
                 save_dashboard_context_snapshot(user_id, context, change_cursor=change_cursor)
             jobs, active_profile_id, user_id, cv_version_id, storage_bucket = context
     except PersistenceError as exc:
-        if "AI_JOB_SEARCH_USER_ID" in str(exc):
+        if "PAIRROLE_USER_ID" in str(exc):
             st.error(str(exc))
             st.stop()
         st.error("The Jobs dashboard could not load its server-side data.")

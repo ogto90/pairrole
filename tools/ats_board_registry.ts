@@ -305,7 +305,7 @@ export async function loadAtsCompanyRegistry(options: {
   fetchImpl?: typeof fetch
 } = {}): Promise<AtsBoardRegistryLoad> {
   const env = options.env ?? process.env
-  const source = options.source ?? (env.AI_JOB_SEARCH_ATS_REGISTRY_SOURCE as AtsBoardRegistrySource | undefined) ?? "auto"
+  const source = options.source ?? (env.PAIRROLE_ATS_REGISTRY_SOURCE as AtsBoardRegistrySource | undefined) ?? "auto"
   const local = async (): Promise<AtsBoardRegistryLoad> => ({
     registry: await JsonCompanyRegistry.load(options.registryPath ?? DEFAULT_REGISTRY_PATH),
     source: "local",

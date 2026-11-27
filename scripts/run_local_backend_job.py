@@ -18,14 +18,14 @@ def job_environment() -> dict[str, str]:
     values = read_env(STATE / "destination.env")
     if values.get("SUPABASE_URL") != LOCAL_URL or values.get("PAIRROLE_EXPECTED_SUPABASE_URL") != LOCAL_URL:
         raise RuntimeError("Local scheduler destination does not match the fixed deployment origin")
-    if not values.get("AI_JOB_SEARCH_USER_ID"):
+    if not values.get("PAIRROLE_USER_ID"):
         raise RuntimeError("Local scheduler requires an explicit owner UUID")
     env = {**os.environ, **values}
     env["PATH"] = str(Path.home() / ".bun/bin") + os.pathsep + env.get("PATH", "")
-    env["AI_JOB_SEARCH_ATS_REGISTRY_SOURCE"] = "supabase"
-    env["AI_JOB_SEARCH_ATS_REGISTRY_MIN_VERIFIED"] = "1"
-    env["AI_JOB_SEARCH_TRACING_ENABLED"] = "false"
-    env["AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS"] = "30"
+    env["PAIRROLE_ATS_REGISTRY_SOURCE"] = "supabase"
+    env["PAIRROLE_ATS_REGISTRY_MIN_VERIFIED"] = "1"
+    env["PAIRROLE_TRACING_ENABLED"] = "false"
+    env["PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS"] = "30"
     return env
 
 
@@ -48,13 +48,13 @@ def main():
             temporary = counter.with_suffix(".tmp")
             temporary.write_text(str(slot))
             temporary.replace(counter)
-            env["AI_JOB_SEARCH_ATS_ROTATION_SLOT"] = str(slot)
+            env["PAIRROLE_ATS_ROTATION_SLOT"] = str(slot)
             subprocess.run([sys.executable, str(ROOT / "scripts/run_dashboard_discovery.py"),
                 "--status-file", str(status), "--log-file", str(STATE / "discovery.log"),
-                "--user-id", env["AI_JOB_SEARCH_USER_ID"]], cwd=ROOT, env=env, check=True, timeout=7200)
+                "--user-id", env["PAIRROLE_USER_ID"]], cwd=ROOT, env=env, check=True, timeout=7200)
         command = [sys.executable, str(ROOT / "scripts/build_dashboard_summaries.py"),
             "--supabase-url", LOCAL_URL, "--expected-url", LOCAL_URL,
-            "--user-id", env["AI_JOB_SEARCH_USER_ID"], "--retries", "3", "--require-complete"]
+            "--user-id", env["PAIRROLE_USER_ID"], "--retries", "3", "--require-complete"]
         if args.job == "discovery":
             command += ["--discovery-status-file", str(status)]
         subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=1500)
