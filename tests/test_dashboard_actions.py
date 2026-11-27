@@ -747,6 +747,7 @@ def test_pending_retry_runner_passes_only_explicit_ids_and_current_user(monkeypa
     from types import SimpleNamespace
 
     captured = []
+    monkeypatch.setattr("ui.dashboard.bun_command", lambda: "/usr/local/bin/bun")
     monkeypatch.setattr(
         "ui.dashboard.subprocess.run",
         lambda command, **kwargs: captured.append((command, kwargs)) or SimpleNamespace(returncode=0, stdout=json.dumps({"jobs": []}), stderr=""),
@@ -757,6 +758,16 @@ def test_pending_retry_runner_passes_only_explicit_ids_and_current_user(monkeypa
     assert command[-4:] == ["--ids", "4,8", "--user-id", "user-1"]
     assert kwargs["env"]["PAIRROLE_USER_ID"] == "user-1"
     assert kwargs["timeout"] == 600
+    assert command[0] == "/usr/local/bin/bun"
+
+
+def test_pending_retry_runner_reports_missing_bun(monkeypatch):
+    def missing():
+        raise RuntimeError("Bun is not installed or executable.")
+
+    monkeypatch.setattr("ui.dashboard.bun_command", missing)
+    with pytest.raises(RuntimeError, match="Bun runtime is unavailable"):
+        run_pending_evidence_retry([4], user_id="user-1")
 
 
 def test_pending_retry_runner_rejects_unbounded_batches():
@@ -785,6 +796,7 @@ def test_dashboard_job_loader_pages_past_the_rest_api_default_limit():
 
 
 def test_pending_retry_runner_reports_missing_ids_without_exposing_stderr(monkeypatch):
+    monkeypatch.setattr("ui.dashboard.bun_command", lambda: "/usr/local/bin/bun")
     monkeypatch.setattr(
         "ui.dashboard.subprocess.run",
         lambda *args, **kwargs: SimpleNamespace(

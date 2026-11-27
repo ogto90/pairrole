@@ -5,6 +5,7 @@ import {
   configuredJdEnrichmentBudget,
   DEFAULT_DASHBOARD_ATS_BOARD_BUDGET,
   DEFAULT_JD_ENRICHMENT_BUDGET,
+  MAX_JD_ENRICHMENT_BUDGET,
   classifyEmploymentType,
   classifyLanguageEligibility,
   classifyLocationEligibility,
@@ -122,14 +123,17 @@ function suppressionTestJob() {
 }
 
 describe("generic discovery", () => {
-  test("JD enrichment budget accepts only the default or explicit pilot cap", () => {
-    expect(DEFAULT_JD_ENRICHMENT_BUDGET).toBe(30)
-    expect(configuredJdEnrichmentBudget(undefined)).toBe(30)
-    expect(configuredJdEnrichmentBudget("")).toBe(30)
+  test("JD enrichment budget defaults to 150 and accepts whole numbers up to the ceiling", () => {
+    expect(DEFAULT_JD_ENRICHMENT_BUDGET).toBe(150)
+    expect(MAX_JD_ENRICHMENT_BUDGET).toBe(300)
+    expect(configuredJdEnrichmentBudget(undefined)).toBe(150)
+    expect(configuredJdEnrichmentBudget("")).toBe(150)
     expect(configuredJdEnrichmentBudget("30")).toBe(30)
     expect(configuredJdEnrichmentBudget(" 60 ")).toBe(60)
-    for (const invalid of ["0", "-1", "29", "31", "61", "150", "438", "garbage", "60.0", "Infinity"]) {
-      expect(() => configuredJdEnrichmentBudget(invalid)).toThrow("must be 30 or 60")
+    expect(configuredJdEnrichmentBudget("1")).toBe(1)
+    expect(configuredJdEnrichmentBudget("300")).toBe(300)
+    for (const invalid of ["0", "-1", "301", "438", "garbage", "60.0", "1e2", "Infinity", "0x10"]) {
+      expect(() => configuredJdEnrichmentBudget(invalid)).toThrow("must be a whole number from 1 to 300")
     }
   })
 
