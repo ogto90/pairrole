@@ -22,7 +22,7 @@ def main():
     settings = read_env(STATE / "destination.env")
     assert settings["SUPABASE_URL"] == LOCAL_URL
     client = SupabaseRestClient(LOCAL_URL, settings["SUPABASE_SECRET_KEY"])
-    user = settings["AI_JOB_SEARCH_USER_ID"]
+    user = settings["PAIRROLE_USER_ID"]
     context = load_profile_context(client, user)
     assert context["cv"] and context["candidate"] and context["search_profile"]
     base = client.resolve_active_base_cv(user)

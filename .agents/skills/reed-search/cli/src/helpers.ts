@@ -1,7 +1,7 @@
 export const API_BASE = "https://www.reed.co.uk/api/1.0"
 export const HOST = "www.reed.co.uk"
 
-const UA = "ai-job-search-reed-cli/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const UA = "pairrole-reed-cli/1.0 (+https://github.com/ogto90/pairrole)"
 const MAX_ATTEMPTS = 3
 
 export interface ReedSearchJob {

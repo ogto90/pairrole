@@ -780,8 +780,8 @@ async function main(): Promise<number> {
     process.stderr.write("usage: bun run tools/job_pipeline.ts run [--candidate path] [--source name] [--limit n] [--include-unvalidated] [--disable-enrichment] [--detail-cache path] [--dry-run] [--format json|plain]\n")
     return 2
   }
-  const userId = typeof args["user-id"] === "string" ? args["user-id"].trim() : process.env.AI_JOB_SEARCH_USER_ID?.trim()
-  if (!userId) throw new Error("Pipeline runtime requires --user-id or AI_JOB_SEARCH_USER_ID")
+  const userId = typeof args["user-id"] === "string" ? args["user-id"].trim() : process.env.PAIRROLE_USER_ID?.trim()
+  if (!userId) throw new Error("Pipeline runtime requires --user-id or PAIRROLE_USER_ID")
   const { createSupabaseDiscoveryStoreFromEnv, buildSearchQueries } = await import("./generic_discovery")
   const searchProfile = await (await createSupabaseDiscoveryStoreFromEnv()).getActiveSearchProfile(userId)
   const result = await runJobPipeline({

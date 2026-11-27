@@ -129,7 +129,7 @@ const DEFAULT_CACHE_PATH = "job_scraper/detail_enrichment_cache.json"
 const DEFAULT_MAX_BODY_BYTES = 768_000
 const DEFAULT_MAX_JOBS = 30
 const DETAIL_TIMEOUT_MS = 20_000
-const USER_AGENT = "ai-job-search-detail-enrichment/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const USER_AGENT = "pairrole-detail-enrichment/1.0 (+https://github.com/ogto90/pairrole)"
 let nextSmartRecruitersRequestAt = 0
 
 async function paceSmartRecruitersRequest(): Promise<void> {

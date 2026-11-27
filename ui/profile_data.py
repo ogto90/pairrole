@@ -32,12 +32,12 @@ EMPLOYMENT_TYPES = ("full_time", "part_time", "contract", "temporary", "internsh
 
 def resolve_application_user_id(client: SupabaseRestClient) -> str:
     """Resolve a server-owned user context, never from query or widget input."""
-    configured = os.getenv("AI_JOB_SEARCH_USER_ID", "").strip()
+    configured = os.getenv("PAIRROLE_USER_ID", "").strip()
     if configured:
         try:
             return str(UUID(configured))
         except ValueError as exc:
-            raise PersistenceError("AI_JOB_SEARCH_USER_ID must be a valid user UUID.") from exc
+            raise PersistenceError("PAIRROLE_USER_ID must be a valid user UUID.") from exc
     # Backwards-compatible only while the deployment has exactly one active base CV.
     try:
         return _resolve_fallback_user_id_cached(
@@ -45,7 +45,7 @@ def resolve_application_user_id(client: SupabaseRestClient) -> str:
         )
     except PersistenceError as exc:
         raise PersistenceError(
-            "Set AI_JOB_SEARCH_USER_ID in the local server environment to select this app instance's user context."
+            "Set PAIRROLE_USER_ID in the local server environment to select this app instance's user context."
         ) from exc
 
 

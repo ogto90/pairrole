@@ -2,7 +2,7 @@
 
 ## Rollout
 
-Tracing is disabled unless `AI_JOB_SEARCH_TRACING_ENABLED=true`. Before turning
+Tracing is disabled unless `PAIRROLE_TRACING_ENABLED=true`. Before turning
 it on, apply the forward-only `discovery_candidate_traces` migration in the
 target environment. The scheduled workflow leaves tracing disabled; manual runs
 require the explicit opt-in input. A missing trace table or trace write failure
@@ -10,10 +10,10 @@ is reported in the run's `candidate_traces` summary and does not stop discovery.
 
 Defaults and bounds:
 
-- `AI_JOB_SEARCH_TRACE_MAX_CANDIDATES=5000` maximum source candidates retained
+- `PAIRROLE_TRACE_MAX_CANDIDATES=5000` maximum source candidates retained
   per run; valid range is 1-50,000.
-- `AI_JOB_SEARCH_TRACE_RETENTION_DAYS=30` trace retention; valid range is 1-365.
-- `AI_JOB_SEARCH_TRACE_CLEANUP_BATCH=5000` maximum stale rows removed per
+- `PAIRROLE_TRACE_RETENTION_DAYS=30` trace retention; valid range is 1-365.
+- `PAIRROLE_TRACE_CLEANUP_BATCH=5000` maximum stale rows removed per
   enabled run; valid range is 1-5,000.
 - Trace inserts are idempotent by `(search_run_id, candidate_identity)` and
   written in batches of 200. If the safety cap is reached, terminal rejected,

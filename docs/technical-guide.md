@@ -44,7 +44,7 @@ Fill in `.env` using your own values:
 | --- | --- |
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_SECRET_KEY` | Server-side database and storage access |
-| `AI_JOB_SEARCH_USER_ID` | Existing user UUID for this app instance |
+| `PAIRROLE_USER_ID` | Existing user UUID for this app instance |
 | `OPENAI_API_KEY` | AI evaluation, CV parsing/tailoring, recommendations, and preparation packs |
 
 Some job sources need additional API credentials and CLI dependencies. Consult the selected source's instructions under `.agents/skills/<source>/` and the [workflow configuration](../.github/workflows/job-discovery.yml).
@@ -59,7 +59,7 @@ In **Profile**, upload and parse a LaTeX base CV, review the resulting candidate
 
 The public portfolio copy disables automatic discovery and summary writes. The [discovery workflow](../.github/workflows/job-discovery.yml) and [summary-builder workflow](../.github/workflows/dashboard-summary-builder.yml) can be run manually after configuring your own project. The discovery workflow defines request budgets, optional tracing, source credentials, and ATS rotation settings.
 
-A fork needs `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and `AI_JOB_SEARCH_USER_ID` environment secrets, plus any selected source credentials. Set the `SUPABASE_PROJECT_REF` environment variable to the exact project ref. The jobs reference the **Job search** environment and expect a populated, verified ATS registry in Supabase.
+A fork needs `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and `PAIRROLE_USER_ID` environment secrets, plus any selected source credentials. Set the `SUPABASE_PROJECT_REF` environment variable to the exact project ref. The jobs reference the **Job search** environment and expect a populated, verified ATS registry in Supabase.
 
 Review the workflows and your environment's branch restrictions before running them. The summary-builder commands require `--expected-project-ref` and an explicit `--allow-production` flag for hosted writes. Adding secrets alone does not make these workflows portable.
 

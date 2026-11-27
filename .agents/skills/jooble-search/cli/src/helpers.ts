@@ -1,4 +1,4 @@
-const UA = "ai-job-search-jooble-cli/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const UA = "pairrole-jooble-cli/1.0 (+https://github.com/ogto90/pairrole)"
 const MAX_ATTEMPTS = 3
 
 interface EnvLike {

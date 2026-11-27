@@ -42,7 +42,7 @@ def test_fallback_user_resolution_does_not_query_on_every_rerun(monkeypatch):
             calls.append(1)
             return SimpleNamespace(user_id="user-1")
 
-    monkeypatch.delenv("AI_JOB_SEARCH_USER_ID", raising=False)
+    monkeypatch.delenv("PAIRROLE_USER_ID", raising=False)
     profile_data._resolve_fallback_user_id_cached.clear()
     client = Client()
 

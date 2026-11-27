@@ -134,17 +134,17 @@ describe("generic discovery", () => {
   })
 
   test("effective JD budget is present even when no candidate needs hydration", async () => {
-    const original = process.env.AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS
+    const original = process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS
     try {
-      process.env.AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS = "60"
+      process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS = "60"
       const result = await runGenericDiscovery({ mode: "broad", profile: profiles.security,
         store: new MemoryStore(), sourceRunners: [], atsRunner: atsRunner([]) })
       expect(result.stats.jd_hydration?.budget).toBe(60)
       expect(result.stats.jd_hydration_summary).toContain("budget=60")
       expect(result.stats.jd_hydration?.attempted).toBe(0)
     } finally {
-      if (original === undefined) delete process.env.AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS
-      else process.env.AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS = original
+      if (original === undefined) delete process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS
+      else process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS = original
     }
   })
 

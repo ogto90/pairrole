@@ -1,7 +1,7 @@
 export const API_URL = "https://jobicy.com/api/v2/remote-jobs"
 export const HOST = "jobicy.com"
 
-const UA = "ai-job-search-jobicy-cli/1.0 (+https://github.com/MadsLorentzen/ai-job-search)"
+const UA = "pairrole-jobicy-cli/1.0 (+https://github.com/ogto90/pairrole)"
 const MAX_ATTEMPTS = 3
 const MAX_RETRY_AFTER_MS = 20_000
 const RETRYABLE_PARSE_PATTERNS = [/unterminated/i, /unexpected end/i, /unexpected eof/i, /end of json/i]

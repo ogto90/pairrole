@@ -536,16 +536,16 @@ export function mergePersistedJobPayload(job: DiscoveredJob, current: Record<str
 export const DEFAULT_DASHBOARD_ATS_BOARD_BUDGET = 8
 export const DEFAULT_JD_ENRICHMENT_BUDGET = 30
 
-export function configuredJdEnrichmentBudget(value = process.env.AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS): number {
+export function configuredJdEnrichmentBudget(value = process.env.PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS): number {
   if (value === undefined || value.trim() === "") return DEFAULT_JD_ENRICHMENT_BUDGET
   if (value.trim() === "30" || value.trim() === "60") return Number(value.trim())
-  throw new Error("AI_JOB_SEARCH_JD_ENRICHMENT_MAX_ATTEMPTS must be 30 or 60")
+  throw new Error("PAIRROLE_JD_ENRICHMENT_MAX_ATTEMPTS must be 30 or 60")
 }
 
-export function configuredDashboardAtsBoardBudget(value = process.env.AI_JOB_SEARCH_ATS_BOARD_BUDGET): number {
+export function configuredDashboardAtsBoardBudget(value = process.env.PAIRROLE_ATS_BOARD_BUDGET): number {
   if (value === undefined || value.trim() === "") return DEFAULT_DASHBOARD_ATS_BOARD_BUDGET
   if (!/^\d+$/.test(value.trim()) || Number(value) < 1) {
-    throw new Error("AI_JOB_SEARCH_ATS_BOARD_BUDGET must be a positive integer")
+    throw new Error("PAIRROLE_ATS_BOARD_BUDGET must be a positive integer")
   }
   return Number(value)
 }
@@ -1277,7 +1277,7 @@ export async function runGenericDiscovery(options: GenericDiscoveryOptions): Pro
   const now = options.now ?? new Date()
   const tracingEnabled = options.candidateTracing ?? candidateTracingEnabled()
   const store = options.store
-  const userId = options.userId?.trim() || process.env.AI_JOB_SEARCH_USER_ID?.trim()
+  const userId = options.userId?.trim() || process.env.PAIRROLE_USER_ID?.trim()
   const profile = options.profile ?? (store
     ? await store.getActiveSearchProfile(userId || (() => { throw new Error("userId is required to load a SearchProfile") })())
     : (() => { throw new Error("profile or store is required") })())
@@ -2721,8 +2721,8 @@ async function main(): Promise<void> {
   const limitIndex = flags.indexOf("--limit")
   const limit = limitIndex >= 0 ? Number(flags[limitIndex + 1]) : undefined
   const userIdIndex = flags.indexOf("--user-id")
-  const userId = userIdIndex >= 0 ? flags[userIdIndex + 1]?.trim() : process.env.AI_JOB_SEARCH_USER_ID?.trim()
-  if (!userId) throw new Error("--user-id or AI_JOB_SEARCH_USER_ID is required")
+  const userId = userIdIndex >= 0 ? flags[userIdIndex + 1]?.trim() : process.env.PAIRROLE_USER_ID?.trim()
+  if (!userId) throw new Error("--user-id or PAIRROLE_USER_ID is required")
   const store = await createSupabaseDiscoveryStoreFromEnv()
   const result = await runGenericDiscovery({ mode: modeArg, store, dryRun, limit, userId })
   process.stdout.write(`${JSON.stringify({ runId: result.runId, profile: result.profile.name, mode: result.mode, stage: "discovery_and_eligibility", processedAt: result.processedAt, queries: result.queries, stats: result.stats, processedJobIds: result.processedJobIds, sources: result.sourceDetails }, null, 2)}\n`)

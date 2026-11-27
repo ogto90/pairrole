@@ -26,7 +26,7 @@ def now() -> str:
 
 SENSITIVE_ENV_NAMES = {
     "SUPABASE_URL",
-    "AI_JOB_SEARCH_USER_ID",
+    "PAIRROLE_USER_ID",
     "ADZUNA_APP_ID",
     "ADZUNA_APP_KEY",
     "JOOBLE_API_KEY_AT",
