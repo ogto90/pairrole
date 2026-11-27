@@ -8,12 +8,20 @@ import streamlit as st
 from matching.candidate_profile import CandidateProfile
 from matching.candidate_profile_persistence import PersistenceError, SupabaseRestClient
 from matching.cv_parser import parse_candidate_profile
+from matching.domains.cybersecurity import CYBERSECURITY_DOMAIN
 from matching.search_profile import SearchProfile
 from matching.tailored_cv import TailoredCVError, compile_latex
 from .profile_data import (
     EMPLOYMENT_TYPES, SENIORITY, load_profile_context,
     parse_line_values, save_and_parse_base_cv, save_job_preferences, search_profile_model, validate_latex_upload,
 )
+
+
+def _parse_uploaded_cv(latex_text: str, cv_version_id: int) -> CandidateProfile:
+    """Parse an uploaded CV with the same domain normalization replay uses."""
+
+    return parse_candidate_profile(latex_text, cv_version_id, domain_rules=CYBERSECURITY_DOMAIN)
+
 
 _APPTEST_CLIENT = None
 
@@ -208,7 +216,7 @@ def render_profile(client: SupabaseRestClient, *, user_id: str) -> None:
                 with st.spinner("Parsing CV and preparing the new profile…"):
                     save_and_parse_base_cv(
                         client, user_id=user_id, filename=upload.name, data=upload.getvalue(),
-                        parser=parse_candidate_profile, model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+                        parser=_parse_uploaded_cv, model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
                     )
             except Exception as exc:
                 st.error(f"CV replacement failed. The previous active CV and profile were preserved. {exc}")

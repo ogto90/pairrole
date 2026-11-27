@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from html import escape
 from typing import Iterable
 
+from .cv_skills_latex import SECTION_HEADING_RE
+
 
 @dataclass(frozen=True)
 class CVTextUnit:
@@ -72,7 +74,7 @@ def _arguments(command_text: str, count: int) -> list[str] | None:
 
 
 def _section_segments(source: str) -> list[tuple[str, str]]:
-    headings = list(re.finditer(r"\\(?:cvsection|section|subsection)\{([^{}]*)\}", source))
+    headings = list(SECTION_HEADING_RE.finditer(source))
     if not headings:
         return [("Document", source)]
     segments: list[tuple[str, str]] = []
@@ -111,6 +113,9 @@ def extract_cv_units(source: str) -> tuple[CVTextUnit, ...]:
             occupied.append((start, end))
             if kind == "bullet":
                 text = _strip_latex(command_text.split("\\item", 1)[1])
+                # Plain-list CV layouts write Skills rows as \item \textbf{Category:} ...
+                if "skill" in section.casefold():
+                    kind = "skill"
             else:
                 args = _arguments(command_text, 5 if kind == "role" else 2)
                 if not args:

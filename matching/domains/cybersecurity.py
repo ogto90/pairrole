@@ -23,11 +23,14 @@ class CybersecurityDomainRules:
             re.compile(r"web application scanning", re.IGNORECASE),
         ),
     )
+    # Each pattern recognizes the term in both capability names and CV evidence,
+    # including the long forms models often return, e.g.
+    # "Static application security testing (SAST)".
     _ATOMIC_TERMS = {
-        "sast": re.compile(r"\bsast\b", re.IGNORECASE),
-        "sca": re.compile(r"\bsca\b", re.IGNORECASE),
-        "dast": re.compile(r"\bdast\b", re.IGNORECASE),
-        "threat modeling": re.compile(r"threat modeling", re.IGNORECASE),
+        "sast": re.compile(r"\bsast\b|static application security testing", re.IGNORECASE),
+        "sca": re.compile(r"\bsca\b|software composition analysis", re.IGNORECASE),
+        "dast": re.compile(r"\bdast\b|dynamic application security testing", re.IGNORECASE),
+        "threat modeling": re.compile(r"threat[- ]model(?:l)?ing", re.IGNORECASE),
         "secure code review": re.compile(r"secure code review", re.IGNORECASE),
     }
 
@@ -68,9 +71,14 @@ class CybersecurityDomainRules:
     ) -> list[ExtractedEvidence]:
         """Prevent broad scanning evidence from inflating named AppSec capabilities."""
 
-        pattern = self._ATOMIC_TERMS.get(capability.normalized_name.strip().casefold())
+        name = capability.normalized_name.strip()
+        pattern = self._ATOMIC_TERMS.get(name.casefold())
         if pattern is None:
-            return items
+            # Long-form or decorated names; skip combined ones like "SAST and DAST".
+            named = [term for term in self._ATOMIC_TERMS.values() if term.search(name)]
+            if len(named) != 1:
+                return items
+            pattern = named[0]
         relevant = [item for item in items if pattern.search(item.cv_text)]
         return relevant or [item for item in items if item.origin != EvidenceOrigin.WORK_HISTORY]
 
