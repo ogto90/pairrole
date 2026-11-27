@@ -199,6 +199,18 @@ describe("durable ATS board registry", () => {
     expect(() => new SupabaseAtsBoardRepository("http://example.supabase.co", "server-secret")).toThrow("must use HTTPS")
   })
 
+  test("the fixed local deployment can read verified boards without following redirects", async () => {
+    const repository = new SupabaseAtsBoardRepository("http://127.0.0.1:55321", "local-secret", async (input, init) => {
+      expect(String(input)).toStartWith("http://127.0.0.1:55321/rest/v1/")
+      expect(init?.redirect).toBe("error")
+      return new Response("[]", { status: 200 })
+    })
+    expect(await repository.listVerified()).toEqual([])
+    for (const url of ["http://127.0.0.1:54321", "http://localhost:55321", "http://127.0.0.1:55321/other", "http://127.0.0.1:55321?redirect=1", "http://user:pass@127.0.0.1:55321"]) {
+      expect(() => new SupabaseAtsBoardRepository(url, "secret")).toThrow()
+    }
+  })
+
   test("import conflicts are ignored at the database boundary to avoid overwriting a concurrent mapping", async () => {
     let prefer = ""
     const repository = new SupabaseAtsBoardRepository("https://example.supabase.co", "server-secret", async (_input, init) => {

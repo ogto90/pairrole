@@ -78,6 +78,6 @@ def test_jobs_notice_includes_local_time_and_run_status(monkeypatch):
 
     captions = []
     monkeypatch.setattr(st, "caption", captions.append)
-    render_latest_discovery(Client(), user_id="user-a", project_url="render-test")
+    render_latest_discovery.__wrapped__(Client(), user_id="user-a", project_url="render-test")
 
     assert captions == ["Last discovery: 4 Nov 2026, 12:07 CET · completed with issues"]
