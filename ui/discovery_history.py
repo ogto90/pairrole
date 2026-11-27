@@ -56,6 +56,7 @@ def format_discovery_started_at(value: str) -> str:
     return f"{local.day} {local:%b %Y, %H:%M %Z}"
 
 
+@st.fragment(run_every="60s")
 def render_latest_discovery(
     client: SupabaseRestClient, *, user_id: str, project_url: str,
 ) -> None:
@@ -65,7 +66,11 @@ def render_latest_discovery(
         latest = load_latest_discovery(client, user_id=user_id, project_url=project_url)
     except (PersistenceError, ValueError, TypeError):
         st.caption("Latest discovery time is currently unavailable.")
+        from .discovery_health import render_discovery_health
+        render_discovery_health(project_url, None)
         return
+    from .discovery_health import render_discovery_health
+    render_discovery_health(project_url, latest)
     if latest is None:
         st.caption("No discovery runs recorded yet.")
         return

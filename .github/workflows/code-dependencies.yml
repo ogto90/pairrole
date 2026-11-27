@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/app-tests"
           "$RUNNER_TEMP/app-tests/bin/pip" install --require-hashes -r requirements-lock.txt
-          "$RUNNER_TEMP/app-tests/bin/python" -m pytest tests/security/test_dependency_exceptions.py -q
+          "$RUNNER_TEMP/app-tests/bin/python" -m pytest tests/security/test_dependency_exceptions.py tests/test_discovery_runner.py tests/test_discovery_runtime.py tests/test_discovery_health.py tests/test_discovery_history.py tests/test_run_dashboard_discovery.py tests/test_settings_attention.py -q
           for cli in jobbank-search jobdanmark-search jobindex-search jobnet-search; do
             (cd ".agents/skills/$cli/cli" && bun run src/cli.ts --help > /dev/null)
           done
