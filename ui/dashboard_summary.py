@@ -19,8 +19,12 @@ from urllib.parse import urlencode
 from matching.candidate_profile_persistence import PersistenceError, SupabaseRestClient
 
 
+# Bump when eligibility/decision logic changes. The database compares stored
+# summaries with the value written by sync_summary_algorithm_version(), so a bump
+# marks every summary stale and the background rebuild refreshes them.
 SUMMARY_ALGORITHM_VERSION = 2
 PAGE_SIZE = 50
+_SYNCED_ALGORITHM_VERSION_TARGETS: set[str] = set()
 DETAIL_FIELDS = {"description", "fit_strengths", "fit_gaps", "fit_job_snapshot"}
 
 
@@ -133,6 +137,22 @@ def summary_input_fingerprint(job: Any, *, job_updated_at: str, profile_revision
     return hashlib.sha256(encoded).hexdigest()
 
 
+def sync_summary_algorithm_version(client: SupabaseRestClient) -> None:
+    """Record this code's summary algorithm version once per process and target."""
+    target = str(getattr(client, "base_url", ""))
+    if target in _SYNCED_ALGORITHM_VERSION_TARGETS:
+        return
+    # One attempt per process: an older database without the setting keeps its
+    # previous behaviour instead of paying a failing request on every page.
+    _SYNCED_ALGORITHM_VERSION_TARGETS.add(target)
+    try:
+        _rpc(client, "dashboard_set_summary_algorithm_version", {"p_version": SUMMARY_ALGORITHM_VERSION})
+    except PersistenceError:
+        logging.getLogger(__name__).warning(
+            "dashboard summary algorithm version was not synchronised; apply the latest Supabase migration"
+        )
+
+
 def _rpc(client: SupabaseRestClient, function: str, payload: dict[str, Any]) -> Any:
     # Preserve PostgREST's result shape. Table-returning RPCs (notably the
     # summary work queue) must remain lists even when the final batch has one
@@ -157,6 +177,7 @@ def fetch_dashboard_page(client: SupabaseRestClient, *, user_id: str,
                          filters: dict[str, Any]) -> DashboardPage:
     """Read one server-filtered, server-ranked page; never falls back to history."""
     from ui.dashboard_data import DashboardJob
+    sync_summary_algorithm_version(client)
     failed = {
         str(k): str(v)
         for k, v in filters.get("failed_fingerprints", {}).items()
@@ -274,6 +295,8 @@ def build_dashboard_summaries(client: SupabaseRestClient, *, user_id: str,
                               priority_job_ids: list[int] | None = None) -> dict[str, int]:
     """Build at most 50 summaries per DB round trip; safe to rerun after interruption."""
     from ui.dashboard import _load_dashboard_context_rows
+
+    sync_summary_algorithm_version(client)
 
     if target_job_id is not None and int(target_job_id) < 1:
         raise ValueError("job_id must be a positive integer")

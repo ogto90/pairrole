@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import json
 import logging
+import os
 import re
 from threading import Lock
 
@@ -12,6 +13,16 @@ _LOGGER.setLevel(logging.INFO)
 _LOGGER.propagate = False
 _LOCK = Lock()
 _TOTALS: dict[tuple[str, str], dict[str, int]] = {}
+REQUEST_LOG_ENV = 'PAIRROLE_POSTGREST_REQUEST_LOG'
+
+
+def _log_every_request() -> bool:
+    """Per-request lines are opt-in; the app otherwise logs ~7 lines/s while busy.
+
+    Set PAIRROLE_POSTGREST_REQUEST_LOG=all to collect input for
+    scripts/postgrest_egress_report.py. Failed requests are always logged.
+    """
+    return os.environ.get(REQUEST_LOG_ENV, '').strip().lower() == 'all'
 
 
 def record_response(method: str, path: str, status: int, response_bytes: int) -> None:
@@ -31,6 +42,8 @@ def record_response(method: str, path: str, status: int, response_bytes: int) ->
         totals['requests'] += 1
         totals['response_body_bytes'] += response_bytes
         totals['errors'] += int(status == 0 or status >= 400)
+    if not (_log_every_request() or status == 0 or status >= 400):
+        return
     _LOGGER.info(json.dumps({
         'event': 'postgrest_response', 'runtime': 'python',
         'timestamp': datetime.now(timezone.utc).isoformat(),

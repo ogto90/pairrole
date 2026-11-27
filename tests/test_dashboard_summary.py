@@ -697,3 +697,43 @@ def test_bounded_dashboard_activation_defaults_to_compact_pages():
     assert not bounded_dashboard_enabled("false")
     assert bounded_dashboard_enabled("true")
     assert bounded_dashboard_enabled("1")
+
+
+@pytest.mark.summary_version_sync
+def test_summary_algorithm_version_is_synced_once_and_tolerates_old_databases(monkeypatch):
+    import ui.dashboard_summary as dashboard_summary
+
+    monkeypatch.setattr(dashboard_summary, "_SYNCED_ALGORITHM_VERSION_TARGETS", set())
+    calls = []
+
+    class Client:
+        base_url = "http://127.0.0.1:54321"
+
+        def json_request(self, method, path, payload):
+            calls.append((method, path, payload))
+            return dashboard_summary.SUMMARY_ALGORITHM_VERSION
+
+    client = Client()
+    dashboard_summary.sync_summary_algorithm_version(client)
+    dashboard_summary.sync_summary_algorithm_version(client)
+    assert calls == [("POST", "/rest/v1/rpc/dashboard_set_summary_algorithm_version",
+                      {"p_version": dashboard_summary.SUMMARY_ALGORITHM_VERSION})]
+
+    class OldDatabase(Client):
+        base_url = "http://old.example"
+
+        def json_request(self, method, path, payload):
+            raise dashboard_summary.PersistenceError("function does not exist")
+
+    dashboard_summary.sync_summary_algorithm_version(OldDatabase())  # logs, does not raise
+
+
+def test_summary_version_is_read_from_settings_not_hard_coded_in_sql():
+    from pathlib import Path
+
+    sql = Path("supabase/migrations/20261127160000_dashboard_summary_algorithm_version_setting.sql").read_text()
+    assert "create table public.dashboard_summary_settings" in sql
+    assert "enable row level security" in sql
+    assert "revoke all on public.dashboard_summary_settings from public, anon, authenticated" in sql
+    assert "A hard-coded dashboard summary version literal remains" in sql
+    assert "Expected to rewrite 6 dashboard summary functions" in sql
