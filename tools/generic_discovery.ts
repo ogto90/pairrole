@@ -879,14 +879,50 @@ export function classifyLanguageEligibility(job: DiscoveredJob, profile: SearchP
   return "unclear"
 }
 
+// In free text "contract" and "B2B" are usually not about the job ("smart
+// contract platforms", "employment contract", "contract managers", "B2B SaaS"),
+// so the description only counts as contract evidence in an employment context.
+// Keep in sync with _CONTRACT_EMPLOYMENT_CONTEXT in matching/job_eligibility.py.
+const CONTRACT_DURATION = String.raw`(?:\d+\s*[- ]?\s*(?:months?|weeks?|years?)|fixed[- ]term|freelance|b2b|short[- ]term|long[- ]term|temporary|rolling)`
+const CONTRACT_EMPLOYMENT_CONTEXT = new RegExp(String.raw`(?<!\w)(?:`
+  + String.raw`contract[- ]to[- ]hire`
+  + String.raw`|${CONTRACT_DURATION}[- ]contracts?`
+  + String.raw`|contract\s+(?:role|position|job|basis|assignment|engagement|opportunity|employment|work)`
+  + String.raw`|on\s+an?\s+(?:${CONTRACT_DURATION}\s+)?contract(?:or)?`
+  + String.raw`|(?:employment|job|engagement|contract|work|position)\s+type\s*[:\-\u2013]\s*(?:b2b|contract|contractor|freelance|freelancer|independent\s+contractor)`
+  + String.raw`|(?:as\s+an?|independent|b2b|freelance)\s+contractor`
+  + String.raw`|contractor\s+(?:role|position|agreement|basis|engagement|contract)`
+  + String.raw`|b2b\s+(?:contract|agreement|cooperation|collaboration|basis|engagement|contractor|model|relationship)`
+  + String.raw`|freelancer?\s+(?:role|position|basis|contract|project|engagement|assignment|opportunity)`
+  + String.raw`|as\s+an?\s+freelancer`
+  + String.raw`)(?!\w)`, "gi")
+// Privacy-policy boilerplate ("employment or an independent contractor role").
+const CONTRACT_BOILERPLATE_BEFORE = /(?:employment|employees?|staff|workers?)\s+or\s+(?:an?\s+)?$/i
+// A delimited title qualifier ("Security Architect - Contract"), never "Smart Contract Auditor".
+const CONTRACT_TITLE = /(?:(?:^|[-\u2013\u2014(|,/:]\s*)(?:contract|contractor|freelance|freelancer)(?:\s+(?:role|position|basis))?\s*(?=$|[)\-\u2013\u2014|,/])|^\s*freelancer?\b)/i
+const EMPLOYMENT_TYPE_ALIASES: Record<string, string[]> = { contract: ["contract", "contractor", "b2b", "freelance", "freelancer", "independent contractor"], permanent: ["permanent", "regular employee", "indefinite"], full_time: ["full time", "full-time", "fulltime"], part_time: ["part time", "part-time", "parttime"], temporary: ["temporary", "fixed term", "fixed-term"], internship: ["internship", "intern"] }
+
+function hasContractEmploymentContext(text: string): boolean {
+  return [...text.matchAll(CONTRACT_EMPLOYMENT_CONTEXT)].some((match) =>
+    !CONTRACT_BOILERPLATE_BEFORE.test(text.slice(Math.max(0, (match.index ?? 0) - 40), match.index ?? 0)))
+}
+
+/** Structured source type on any alias; description contract only in an employment context; title as a qualifier. */
+export function detectedEmploymentTypes(employmentType: string | null | undefined, description: string | null | undefined, title?: string | null): string[] {
+  const inStructured = wholeTermMatcher((employmentType ?? "").toLocaleLowerCase())
+  const descriptionText = (description ?? "").toLocaleLowerCase()
+  const inDescription = wholeTermMatcher(descriptionText)
+  const found = new Set(Object.entries(EMPLOYMENT_TYPE_ALIASES).filter(([kind, terms]) =>
+    terms.some(inStructured) || (kind !== "contract" && terms.some(inDescription))).map(([kind]) => kind))
+  if (hasContractEmploymentContext(descriptionText) || CONTRACT_TITLE.test(title ?? "")) found.add("contract")
+  return Object.keys(EMPLOYMENT_TYPE_ALIASES).filter((kind) => found.has(kind))
+}
+
 export function classifyEmploymentType(job: DiscoveredJob, profile: SearchProfileRecord): "eligible" | "ineligible" | "unclear" {
   const definition = profile.definition ?? {}
   const accepted = [...values(definition, "accepted_employment_types", "accepted_employment_types"), ...values(definition, "employment_types", "employment_types")].map(normalized)
   const excluded = values(definition, "excluded_employment_types", "excluded_employment_types").map(normalized)
-  const text = `${job.employmentType ?? ""} ${job.description ?? ""}`.toLocaleLowerCase()
-  const aliases: Record<string, string[]> = { contract: ["contract", "contractor", "b2b", "freelance", "independent contractor"], permanent: ["permanent", "indefinite"], full_time: ["full time", "full-time", "fulltime"], part_time: ["part time", "part-time", "parttime"], temporary: ["temporary", "fixed term", "fixed-term"], internship: ["internship", "intern"] }
-  const inText = wholeTermMatcher(text)
-  const found = Object.entries(aliases).filter(([, terms]) => terms.some(inText)).map(([kind]) => kind)
+  const found = detectedEmploymentTypes(job.employmentType, job.description, job.title)
   if (found.some((kind) => excluded.some((term) => term.replace(/[ -]/g, "_") === kind))) return "ineligible"
   if (!accepted.length) return "eligible"
   if (!found.length) return "unclear"

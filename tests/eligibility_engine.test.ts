@@ -10,6 +10,7 @@ import {
   evaluateFinalJobEligibility,
   type SearchProfileRecord,
   type DiscoveredJob,
+  detectedEmploymentTypes,
 } from "../tools/generic_discovery"
 import { writeFile } from "node:fs/promises"
 import {
@@ -294,6 +295,18 @@ describe("Python dashboard / TypeScript scheduled path equivalence", () => {
           && direct.employment_type === "eligible"
           && direct.seniority === "eligible",
       )
+    }
+  })
+})
+
+describe("employment type detection (shared with Python)", () => {
+  test("contract counts only in an employment context, a title qualifier, or the source label", async () => {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/employment_type_cases.json"), "utf8")) as {
+      cases: Array<{ title: string; employment_type: string | null; description: string; contract: boolean }>
+    }
+    for (const item of fixture.cases) {
+      const detected = detectedEmploymentTypes(item.employment_type, item.description, item.title)
+      expect({ ...item, contract: detected.includes("contract") }).toEqual(item)
     }
   })
 })

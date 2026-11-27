@@ -251,13 +251,68 @@ _EMPLOYMENT_TYPE_PATTERN = re.compile(
 )
 
 
-def detected_employment_types(job_type: str | None, description: str | None) -> set[str]:
-    """Return normalized employment types explicitly named by the listing."""
-    raw = f"{job_type or ''} {description or ''}".casefold()
-    return {
+# In free text "contract" and "B2B" are usually not about the job ("smart
+# contract platforms", "employment contract", "contract managers", "B2B SaaS"),
+# so the description only counts as contract evidence in an employment context.
+# Keep in sync with CONTRACT_EMPLOYMENT_CONTEXT in tools/generic_discovery.ts.
+_CONTRACT_DURATION = r"(?:\d+\s*[- ]?\s*(?:months?|weeks?|years?)|fixed[- ]term|freelance|b2b|short[- ]term|long[- ]term|temporary|rolling)"
+_CONTRACT_EMPLOYMENT_CONTEXT = re.compile(
+    r"(?<!\w)(?:"
+    r"contract[- ]to[- ]hire"
+    rf"|{_CONTRACT_DURATION}[- ]contracts?"
+    r"|contract\s+(?:role|position|job|basis|assignment|engagement|opportunity|employment|work)"
+    rf"|on\s+an?\s+(?:{_CONTRACT_DURATION}\s+)?contract(?:or)?"
+    r"|(?:employment|job|engagement|contract|work|position)\s+type\s*[:\-\u2013]\s*(?:b2b|contract|contractor|freelance|freelancer|independent\s+contractor)"
+    r"|(?:as\s+an?|independent|b2b|freelance)\s+contractor"
+    r"|contractor\s+(?:role|position|agreement|basis|engagement|contract)"
+    r"|b2b\s+(?:contract|agreement|cooperation|collaboration|basis|engagement|contractor|model|relationship)"
+    r"|freelancer?\s+(?:role|position|basis|contract|project|engagement|assignment|opportunity)"
+    r"|as\s+an?\s+freelancer"
+    r")(?!\w)",
+    re.I,
+)
+
+
+# Legal boilerplate such as "application for employment or an independent
+# contractor role" describes the company's privacy policy, not this job.
+_CONTRACT_BOILERPLATE_BEFORE = re.compile(r"(?:employment|employees?|staff|workers?)\s+or\s+(?:an?\s+)?$", re.I)
+# In a title, a delimited qualifier: "Security Architect - Contract",
+# "(Contractor)", "Freelance Cloud Engineer"; never "Smart Contract Auditor".
+_CONTRACT_TITLE = re.compile(
+    r"(?:(?:^|[-\u2013\u2014(|,/:]\s*)(?:contract|contractor|freelance|freelancer)(?:\s+(?:role|position|basis))?\s*(?=$|[)\-\u2013\u2014|,/])"
+    r"|^\s*freelancer?\b)",
+    re.I,
+)
+
+
+def _has_contract_employment_context(text: str) -> bool:
+    return any(
+        not _CONTRACT_BOILERPLATE_BEFORE.search(text[max(0, match.start() - 40):match.start()])
+        for match in _CONTRACT_EMPLOYMENT_CONTEXT.finditer(text)
+    )
+
+
+def detected_employment_types(job_type: str | None, description: str | None, title: str | None = None) -> set[str]:
+    """Return normalized employment types explicitly named by the listing.
+
+    The source's structured type (``job_type``) is matched on any alias. In the
+    description, contract is only detected in an employment context; in the
+    title, only as a delimited qualifier.
+    """
+    structured = (job_type or "").casefold()
+    text = (description or "").casefold()
+    types = {
         _EMPLOYMENT_TYPE_LOOKUP[match.group("term")]
-        for match in _EMPLOYMENT_TYPE_PATTERN.finditer(raw)
+        for match in _EMPLOYMENT_TYPE_PATTERN.finditer(structured)
     }
+    types.update(
+        kind
+        for kind in (_EMPLOYMENT_TYPE_LOOKUP[match.group("term")] for match in _EMPLOYMENT_TYPE_PATTERN.finditer(text))
+        if kind != "contract"
+    )
+    if _has_contract_employment_context(text) or _CONTRACT_TITLE.search(title or ""):
+        types.add("contract")
+    return types
 
 
 def _employer_geography(description: str, title: str, definition: dict[str, Any], accepted: set[str]) -> str | None:
@@ -424,10 +479,10 @@ def _language_status(description: str, definition: dict[str, Any]) -> tuple[str,
     return "unclear", "The listing does not provide enough text to establish its language."
 
 
-def _employment_status(job_type: str | None, description: str, definition: dict[str, Any]) -> tuple[str, str]:
+def _employment_status(job_type: str | None, description: str, definition: dict[str, Any], title: str | None = None) -> tuple[str, str]:
     accepted = {value.casefold().replace("-", "_").replace(" ", "_") for value in _values(definition, "accepted_employment_types", "employment_types")}
     excluded = {value.casefold().replace("-", "_").replace(" ", "_") for value in _values(definition, "excluded_employment_types")}
-    types = detected_employment_types(job_type, description)
+    types = detected_employment_types(job_type, description, title)
     if types & excluded:
         return "ineligible", f"The listing is {', '.join(sorted(types & excluded))}; that employment type is excluded by the profile."
     if accepted:
@@ -439,11 +494,11 @@ def _employment_status(job_type: str | None, description: str, definition: dict[
 
 def _verified_employment_status(
     status: str | None, verified_type: str | None, job_type: str | None,
-    description: str, definition: dict[str, Any],
+    description: str, definition: dict[str, Any], title: str | None = None,
 ) -> tuple[str, str] | None:
     if status not in {"accepted", "rejected"} or not verified_type:
         return None
-    detected = detected_employment_types(job_type, description)
+    detected = detected_employment_types(job_type, description, title)
     if verified_type not in detected:
         return None
     if status == "rejected":
@@ -528,12 +583,12 @@ def assess_discovered_job(
     language_status, language_reason = "eligible", "Language is reviewed from the listing by the user."
     employment_decision = _verified_employment_status(
         verified_employment_type_status, verified_employment_type,
-        employment_type, full_description, definition,
+        employment_type, full_description, definition, title,
     )
     employment_status, employment_reason = (
         employment_decision
         if employment_decision is not None
-        else _employment_status(employment_type, full_description, definition)
+        else _employment_status(employment_type, full_description, definition, title)
     )
     seniority_status, seniority_reason = _seniority_status(title, definition)
     # A per-listing approval affects only the selected preferences and never

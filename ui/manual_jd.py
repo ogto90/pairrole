@@ -342,7 +342,7 @@ def rate_job_with_manual_jd(
                 "Your saved global preferences will not change."
             )
         if eligibility.employment_type == "ineligible":
-            detected = detected_employment_types(row.get("employment_type"), text)
+            detected = detected_employment_types(row.get("employment_type"), text, row.get("title"))
             definition = profiles[0].get("definition", {})
             excluded = {
                 str(value).casefold().replace("-", "_").replace(" ", "_")
