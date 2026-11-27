@@ -22,6 +22,7 @@ from .candidate_profile import (
     Language,
     ToolPlatform,
 )
+from .cv_skills_latex import explicit_skill_rows
 
 
 class ExtractedEvidence(BaseModel):
@@ -107,9 +108,6 @@ _PRODUCTION_TYPES = {
     EvidenceType.HISTORICAL_EXPOSURE,
 }
 
-_SKILLROW_RE = re.compile(r"\\skillrow\{([^{}]*)\}\{([^{}]*)\}")
-
-
 def _capability_key(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip()).casefold()
 
@@ -135,11 +133,8 @@ def augment_explicit_skill_capabilities(
     }
     skill_index = 0
 
-    for category, raw_entries in _SKILLROW_RE.findall(latex_text):
-        for raw_name in raw_entries.split(","):
-            name = raw_name.replace(r"\&", "&").strip()
-            if not name:
-                continue
+    for category, names in explicit_skill_rows(latex_text):
+        for name in names:
             evidence_key = (EvidenceOrigin.SKILLS, name.casefold())
             evidence_id = existing_evidence.get(evidence_key)
             if evidence_id is None:

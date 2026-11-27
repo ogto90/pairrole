@@ -31,7 +31,7 @@ from .cv_normalizer import (
 from .domains.cybersecurity import CYBERSECURITY_DOMAIN
 
 
-PARSER_VERSION = "2.0.0"
+PARSER_VERSION = "2.1.0"
 """Version of the extraction contract plus generic and cybersecurity normalization."""
 
 _SUPABASE_DATA_REVISION = 0

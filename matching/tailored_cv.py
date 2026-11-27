@@ -20,6 +20,7 @@ from .candidate_profile import CandidateProfile
 from .candidate_profile_persistence import PersistenceError, SupabaseRestClient, sha256_bytes
 from .tailored_cv_expiration import artifacts_available
 from .holistic_matcher import CandidateProjection, VerifiedJob, project_candidate
+from .cv_skills_latex import SKILL_ITEM_RE, skills_section_spans
 from .latex_sandbox import sandbox_command
 
 
@@ -463,7 +464,25 @@ def sanitize_latex_source(source: str) -> str:
     def clean_skill_row(match: re.Match[str]) -> str:
         return f"{match.group(1)}{_SKILL_ANNOTATION.sub('', match.group(2))}{match.group(3)}"
 
-    return _SKILL_ROW.sub(clean_skill_row, value)
+    value = _SKILL_ROW.sub(clean_skill_row, value)
+    return _clean_skill_items(value)
+
+
+def _clean_skill_items(value: str) -> str:
+    """Strip skill annotations from ``\\item \\textbf{Category:} ...`` rows in Skills sections."""
+
+    edits: list[tuple[int, int, str]] = []
+    for start, end in skills_section_spans(value):
+        for match in SKILL_ITEM_RE.finditer(value, start, end):
+            entries = match.group(3)
+            cleaned = _SKILL_ANNOTATION.sub("", entries.rstrip())
+            # Keep the original line break/indentation before the next \\item.
+            cleaned += entries[len(entries.rstrip()):]
+            if cleaned != entries:
+                edits.append((match.start(3), match.end(3), cleaned))
+    for start, end, replacement in reversed(edits):
+        value = value[:start] + replacement + value[end:]
+    return value
 
 
 def tailoring_fingerprint(
