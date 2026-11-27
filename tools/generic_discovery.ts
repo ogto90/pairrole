@@ -334,33 +334,68 @@ export function consolidateRunJobObservationContexts(contexts: Record<string, un
   }
 }
 
+interface WeakDuplicateRowFacts {
+  company: string
+  title: string
+  location: string
+  source: string
+  sourceJobId: string
+  url: string | null
+  hasStableIdentity?: boolean
+}
+
+// Derived per stored row once; a bucket of identical company/title/location
+// rows is otherwise re-normalized for every incoming job (quadratic CPU).
+const weakDuplicateRowFacts = new WeakMap<Record<string, unknown>, WeakDuplicateRowFacts>()
+
+function rowFacts(row: Record<string, unknown>): WeakDuplicateRowFacts {
+  let facts = weakDuplicateRowFacts.get(row)
+  if (!facts) {
+    facts = {
+      company: normalized(row.company),
+      title: normalized(row.title),
+      location: normalized(row.location),
+      source: normalized(row.source),
+      sourceJobId: String(row.source_job_id ?? ""),
+      url: normalizedUrl(typeof row.source_url === "string" ? row.source_url : null)
+        ?? normalizedUrl(typeof row.application_url === "string" ? row.application_url : null),
+    }
+    weakDuplicateRowFacts.set(row, facts)
+  }
+  return facts
+}
+
+function rowHasStableIdentity(row: Record<string, unknown>, facts: WeakDuplicateRowFacts): boolean {
+  facts.hasStableIdentity ??= sourceObservationFor({
+    source: row.source,
+    id: row.source_job_id,
+    sourceJobId: row.source_job_id,
+    sourceUrl: row.source_url,
+    applicationUrl: row.application_url,
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    sourceType: "unknown",
+  } as NormalizedJob, String(row.source ?? "unknown")).identityKeys.length > 0
+  return facts.hasStableIdentity
+}
+
 function weakDuplicateCandidates(job: DiscoveredJob, observation: ReturnType<typeof sourceObservationFor>, rows: Record<string, unknown>[]): number[] {
   const incomingHasStableIdentity = observation.identityKeys.length > 0
+  const company = normalized(job.company)
+  const title = normalized(job.title)
+  const location = normalized(job.location)
+  const source = normalized(job.source)
+  const incomingUrl = normalizedUrl(job.sourceUrl) ?? normalizedUrl(job.applicationUrl)
   return [...new Set(rows.flatMap((row) => {
     if (row.id === undefined || row.id === null || !Number.isFinite(Number(row.id))) return []
-    if (normalized(row.company) !== normalized(job.company)
-      || normalized(row.title) !== normalized(job.title)
-      || normalized(row.location) !== normalized(job.location)) return []
-    const sameSource = normalized(row.source) === normalized(job.source)
-    const sameSourceId = Boolean(job.sourceJobId && String(row.source_job_id ?? "") === job.sourceJobId)
-    const incomingUrl = normalizedUrl(job.sourceUrl) ?? normalizedUrl(job.applicationUrl)
-    const storedUrl = normalizedUrl(typeof row.source_url === "string" ? row.source_url : null)
-      ?? normalizedUrl(typeof row.application_url === "string" ? row.application_url : null)
-    const sameSourceUrl = !job.sourceJobId && incomingUrl && incomingUrl === storedUrl
+    const facts = rowFacts(row)
+    if (facts.company !== company || facts.title !== title || facts.location !== location) return []
+    const sameSource = facts.source === source
+    const sameSourceId = Boolean(job.sourceJobId && facts.sourceJobId === job.sourceJobId)
+    const sameSourceUrl = !job.sourceJobId && incomingUrl && incomingUrl === facts.url
     if (sameSource && (sameSourceId || sameSourceUrl)) return []
-    const rowObservation = sourceObservationFor({
-      source: row.source,
-      id: row.source_job_id,
-      sourceJobId: row.source_job_id,
-      sourceUrl: row.source_url,
-      applicationUrl: row.application_url,
-      title: row.title,
-      company: row.company,
-      location: row.location,
-      sourceType: "unknown",
-    } as NormalizedJob, String(row.source ?? "unknown"))
-    const rowHasStableIdentity = rowObservation.identityKeys.length > 0
-    if (incomingHasStableIdentity && rowHasStableIdentity) return []
+    if (incomingHasStableIdentity && rowHasStableIdentity(row, facts)) return []
     return [Number(row.id)]
   }))]
 }
@@ -452,7 +487,23 @@ function normalizedUrl(value: string | null): string | null {
   try { return normalizeCacheUrl(value) } catch { return value }
 }
 
-export function discoveryKey(job: Pick<DiscoveredJob, "source" | "sourceJobId" | "sourceUrl" | "applicationUrl" | "company" | "title" | "location"> & { raw?: NormalizedJob }): string {
+type DiscoveryKeyInput = Pick<DiscoveredJob, "source" | "sourceJobId" | "sourceUrl" | "applicationUrl" | "company" | "title" | "location"> & { raw?: NormalizedJob }
+
+// discoveryKey is looked up many times per job across screening, hydration and
+// persistence, and each computation derives a full source observation. Reuse
+// the key while every input field is still the same value.
+const discoveryKeyCache = new WeakMap<object, { inputs: unknown[]; key: string }>()
+
+export function discoveryKey(job: DiscoveryKeyInput): string {
+  const inputs = [job.source, job.sourceJobId, job.sourceUrl, job.applicationUrl, job.company, job.title, job.location, job.raw]
+  const cached = discoveryKeyCache.get(job)
+  if (cached && cached.inputs.every((value, index) => value === inputs[index])) return cached.key
+  const key = computeDiscoveryKey(job)
+  discoveryKeyCache.set(job, { inputs, key })
+  return key
+}
+
+function computeDiscoveryKey(job: DiscoveryKeyInput): string {
   const source = normalized(job.source)
   const atsKey = job.raw ? sourceObservationFor(job.raw, job.source).identityKeys.find((key) => key.basis === "ats_requisition")?.key : undefined
   if (job.sourceJobId) return `source:${source}:id:${job.sourceJobId}${atsKey ? `:${atsKey}` : ""}`
@@ -560,11 +611,17 @@ function excludedConceptTerms(profile: SearchProfileRecord): string[] {
   return unique([...values(definition, "excluded_terms", "excluded_terms"), ...values(definition, "excluded_concepts", "excludedConcepts")]).map(normalized)
 }
 
-function containsWholeTerm(haystack: string, term: string): boolean {
-  const normalizeWords = (value: string) => normalized(value).replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\bcybersecurity\b/g, "security").trim()
+function normalizeWords(value: string): string {
+  return normalized(value).replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\bcybersecurity\b/g, "security").trim()
+}
+
+/** Normalize the haystack once when testing it against many terms. */
+function wholeTermMatcher(haystack: string): (term: string) => boolean {
   const body = ` ${normalizeWords(haystack)} `
-  const needle = ` ${normalizeWords(term)} `
-  return needle.trim().length > 0 && body.includes(needle)
+  return (term) => {
+    const needle = ` ${normalizeWords(term)} `
+    return needle.trim().length > 0 && body.includes(needle)
+  }
 }
 
 export type RoleEligibility = "target_match" | "target_adjacent" | "unrelated" | "excluded" | "unclear"
@@ -578,12 +635,13 @@ function targetTerms(profile: SearchProfileRecord): string[] {
 }
 
 export function classifyTargetRole(title: string, profile: SearchProfileRecord): RoleEligibility {
-  if (excludedTitleTerms(profile).some((term) => containsWholeTerm(title, term)) || excludedConceptTerms(profile).some((term) => containsWholeTerm(title, term))) return "excluded"
+  const inTitle = wholeTermMatcher(title)
+  if (excludedTitleTerms(profile).some(inTitle) || excludedConceptTerms(profile).some(inTitle)) return "excluded"
   const adjacent = matchingTerms(profile, [["target_adjacent_terms", "target_adjacent_terms"]])
-  if (adjacent.some((term) => containsWholeTerm(title, term))) return "target_adjacent"
+  if (adjacent.some(inTitle)) return "target_adjacent"
   const targets = targetTerms(profile)
   if (!targets.length) return "unclear"
-  if (targets.some((term) => containsWholeTerm(title, term))) return "target_match"
+  if (targets.some(inTitle)) return "target_match"
   return "unrelated"
 }
 
@@ -592,8 +650,9 @@ export function classifyTargetRoleAfterDescription(title: string, description: s
   if (preliminary !== "target_adjacent") return preliminary
   const plain = (description ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ")
   if (!plain) return "unclear"
-  if (excludedConceptTerms(profile).some((term) => containsWholeTerm(plain, term))) return "excluded"
-  return targetTerms(profile).some((term) => containsWholeTerm(plain, term)) ? "target_match" : "unrelated"
+  const inDescription = wholeTermMatcher(plain)
+  if (excludedConceptTerms(profile).some(inDescription)) return "excluded"
+  return targetTerms(profile).some(inDescription) ? "target_match" : "unrelated"
 }
 
 export type LocationEligibility = "eligible" | "ineligible" | "unclear"
@@ -644,9 +703,27 @@ const EMPLOYMENT_COUNTRIES: Record<string, string[]> = {
   Israel: ["Israel", "IL"], "Saudi Arabia": ["Saudi Arabia", "KSA", "SA"], Luxembourg: ["Luxembourg", "LU"],
 }
 
+// Matchers are built once. A two-letter code must stand alone (case-sensitive
+// except US/UK/GB); longer aliases are whole-word matches on normalized text.
+const EMPLOYMENT_COUNTRY_MATCHERS: Array<[string, Array<RegExp | string>]> = Object.entries(EMPLOYMENT_COUNTRIES).map(([country, aliases]) => [
+  country,
+  aliases.map((alias) => alias.length === 2
+    ? new RegExp(`(?<![\\p{L}])${alias}(?![\\p{L}])`, /^(US|UK|GB)$/i.test(alias) ? "iu" : "u")
+    : ` ${normalizeWords(alias)} `),
+])
+
+// Normalized alias -> countries, in EMPLOYMENT_COUNTRIES order.
+const EMPLOYMENT_COUNTRIES_BY_ALIAS = new Map<string, string[]>()
+for (const [country, aliases] of Object.entries(EMPLOYMENT_COUNTRIES)) {
+  for (const alias of new Set(aliases.map(normalized))) {
+    EMPLOYMENT_COUNTRIES_BY_ALIAS.set(alias, [...(EMPLOYMENT_COUNTRIES_BY_ALIAS.get(alias) ?? []), country])
+  }
+}
+
 function employmentCountries(text: string): string[] {
-  return Object.entries(EMPLOYMENT_COUNTRIES).filter(([, aliases]) => aliases.some((alias) =>
-    alias.length === 2 ? new RegExp(`(?<![\\p{L}])${alias}(?![\\p{L}])`, /^(US|UK|GB)$/i.test(alias) ? "iu" : "u").test(text) : containsWholeTerm(text, alias)
+  const body = ` ${normalizeWords(text)} `
+  return EMPLOYMENT_COUNTRY_MATCHERS.filter(([, matchers]) => matchers.some((matcher) =>
+    typeof matcher === "string" ? matcher.trim().length > 0 && body.includes(matcher) : matcher.test(text)
   )).map(([country]) => country)
 }
 
@@ -654,8 +731,7 @@ function countryScopeCompatibility(text: string, allowed: string[]): boolean | n
   const countries = employmentCountries(text)
   const broad = /\b(?:europe|european union|eu|eea|emea|worldwide|global|anywhere)\b/i.test(text)
   if (!countries.length || (broad && !/\bonly\b|\brestricted\b|\blimited\b/i.test(text))) return undefined
-  const anchors = allowed.flatMap((value) => Object.entries(EMPLOYMENT_COUNTRIES)
-    .filter(([, aliases]) => aliases.some((alias) => normalized(alias) === normalized(value))).map(([country]) => country))
+  const anchors = allowed.flatMap((value) => EMPLOYMENT_COUNTRIES_BY_ALIAS.get(normalized(value)) ?? [])
   if (anchors.length) return countries.some((country) => anchors.includes(country))
   if (allowed.some((value) => geographyMatches(text, [value]))) return true
   return allowed.every((value) => /^(?:worldwide|global|anywhere)$/i.test(value)) ? null : false
@@ -803,7 +879,8 @@ export function classifyEmploymentType(job: DiscoveredJob, profile: SearchProfil
   const excluded = values(definition, "excluded_employment_types", "excluded_employment_types").map(normalized)
   const text = `${job.employmentType ?? ""} ${job.description ?? ""}`.toLocaleLowerCase()
   const aliases: Record<string, string[]> = { contract: ["contract", "contractor", "b2b", "freelance", "independent contractor"], permanent: ["permanent", "indefinite"], full_time: ["full time", "full-time", "fulltime"], part_time: ["part time", "part-time", "parttime"], temporary: ["temporary", "fixed term", "fixed-term"], internship: ["internship", "intern"] }
-  const found = Object.entries(aliases).filter(([, terms]) => terms.some((term) => containsWholeTerm(text, term))).map(([kind]) => kind)
+  const inText = wholeTermMatcher(text)
+  const found = Object.entries(aliases).filter(([, terms]) => terms.some(inText)).map(([kind]) => kind)
   if (found.some((kind) => excluded.some((term) => term.replace(/[ -]/g, "_") === kind))) return "ineligible"
   if (!accepted.length) return "eligible"
   if (!found.length) return "unclear"
@@ -818,7 +895,8 @@ export function classifySeniority(title: string, profile: SearchProfileRecord): 
   ]).map(normalized)
   const excluded = values(definition, "excluded_seniority", "excluded_seniority").map(normalized)
   const aliases: Record<string, string[]> = { intern: ["intern", "internship"], junior: ["junior", "entry level", "graduate"], mid: ["mid", "mid-level", "intermediate"], senior: ["senior"], staff: ["staff"], principal: ["principal"], lead: ["lead"], manager: ["manager"], director: ["director"], executive: ["vice president", "vp", "chief"] }
-  const found = Object.entries(aliases).filter(([, terms]) => terms.some((term) => containsWholeTerm(title, term))).map(([level]) => level)
+  const inTitle = wholeTermMatcher(title)
+  const found = Object.entries(aliases).filter(([, terms]) => terms.some(inTitle)).map(([level]) => level)
   if (found.some((level) => excluded.includes(level))) return "ineligible"
   if (!accepted.length) return "eligible"
   if (!found.length) return "unclear"
